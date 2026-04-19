@@ -200,9 +200,12 @@ io.on("connection", async (socket) => {
                 for (const swap of lobby.pendingSwaps) {
                     const card1 = lobby.cards.find(card => card.id === swap.swap[0].id);
                     const card2 = lobby.cards.find(card => card.id === swap.swap[1].id);
-                    const card1Role = lobby.cards.find(card => card.id === swap.swap[0].id).role;
-                    card1.role = lobby.cards.find(card => card.id === swap.swap[1].id).role;
+                    const card1Role = card1.role;
+                    const card1Team = card1.team;
+                    card1.role = card2.role;
+                    card1.team = card2.team;
                     card2.role = card1Role;
+                    card2.team = card1Team;
                 }
                 console.log(JSON.stringify(lobby.cards.map(card => card.name + ": " + card.role)));
                 //
