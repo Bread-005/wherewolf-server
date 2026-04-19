@@ -28,7 +28,8 @@ io.on("connection", async (socket) => {
             name : playerName + "'s Lobby",
             cards: [],
             state: "waiting",
-            selectedRoles: []
+            selectedRoles: [],
+            pendingSwaps: []
         }
 
         for (let i = 0; i < 3; i++) {
@@ -167,6 +168,7 @@ io.on("connection", async (socket) => {
                 player.vote = "";
             }
             lobby.state = "waiting";
+            lobby.pendingSwaps = [];
             io.emit("update-lobbies", lobbies);
         }
     });
@@ -192,6 +194,19 @@ io.on("connection", async (socket) => {
                 if (players.filter(p => p.hasDoneNightAction).length < players.length) {
                     return;
                 }
+
+                // manage swaps
+                lobby.pendingSwaps.sort((a, b) => a.priority - b.priority);
+                for (const swap of lobby.pendingSwaps) {
+                    const card1 = lobby.cards.find(card => card.id === swap.swap[0].id);
+                    const card2 = lobby.cards.find(card => card.id === swap.swap[1].id);
+                    const card1Role = lobby.cards.find(card => card.id === swap.swap[0].id).role;
+                    card1.role = lobby.cards.find(card => card.id === swap.swap[1].id).role;
+                    card2.role = card1Role;
+                }
+                console.log(JSON.stringify(lobby.cards.map(card => card.name + ": " + card.role)));
+                //
+
                 io.emit("reset-night-action-texts");
                 clearInterval(nightPhase);
                 let discussionTime = 6;
@@ -285,8 +300,18 @@ io.on("connection", async (socket) => {
             }
         }
     });
+
+    socket.on("add-swap", ({priority, swap}) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            lobby.pendingSwaps.push({
+                priority: priority,
+                swap: swap
+            });
+        }
+    });
 });
 
 server.listen(3003,"0.0.0.0", () => {
-    console.log("Server running on https://wherewolf-server.onrender.com");
+    console.log("Access game on https://bread-005.github.io/wherewolf-app/index.html");
 });
