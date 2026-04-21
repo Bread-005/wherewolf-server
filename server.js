@@ -15,11 +15,12 @@ const io = new Server(server, {
 app.use(express.static(__dirname));
 
 let lobbies = [];
+let leavingPlayerNames = [];
 
 io.on("connection", async (socket) => {
 
-    socket.emit("init", socket.id);
     io.emit("update-lobbies", lobbies);
+    socket.emit("init", socket.id);
 
     function createCard(id, name, isMiddleCard) {
         return {
@@ -52,7 +53,6 @@ io.on("connection", async (socket) => {
         lobby.cards.push(createCard(socket.id, playerName, false));
         lobbies.push(lobby);
 
-        socket.emit("send-to-game", lobbies[lobbies.length - 1].id);
         io.emit("update-lobbies", lobbies);
     });
 
@@ -61,7 +61,6 @@ io.on("connection", async (socket) => {
         if (!lobby) return;
 
         lobby.cards.push(createCard(socket.id, name, false));
-        socket.emit("send-to-game", lobby.id);
         io.emit("update-lobbies", lobbies);
     });
 
@@ -73,7 +72,17 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("disconnect", () => {
-        handlePlayerLeave();
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.id === socket.id);
+            leavingPlayerNames.push(player.name);
+
+            setTimeout(() => {
+                if (leavingPlayerNames.includes(player.name)) {
+                    handlePlayerLeave();
+                }
+            }, 3000);
+        }
     });
 
     socket.on("leave", () => {
@@ -83,6 +92,7 @@ io.on("connection", async (socket) => {
     function handlePlayerLeave() {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby) {
+            io.emit("broadcast-message", lobby.cards.find(player => player.id === socket.id).name + " has left");
             lobby.cards = lobby.cards.filter(card => card.id !== socket.id);
             if (lobby.cards.length === 3) lobbies = lobbies.filter(l => l.id !== lobby.id);
             io.emit("update-lobbies", lobbies);
@@ -299,6 +309,18 @@ io.on("connection", async (socket) => {
                 priority: priority,
                 swap: swap
             });
+        }
+    });
+
+    socket.on("reconnect-player", (savedName) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.name === savedName));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.name === savedName);
+            if (player) {
+                player.id = socket.id;
+                leavingPlayerNames = leavingPlayerNames.filter(name => name !== player.name);
+                io.emit("update-lobbies", lobbies);
+            }
         }
     });
 });
