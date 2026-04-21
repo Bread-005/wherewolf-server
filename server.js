@@ -21,6 +21,20 @@ io.on("connection", async (socket) => {
     socket.emit("init", socket.id);
     io.emit("update-lobbies", lobbies);
 
+    function createCard(id, name, isMiddleCard) {
+        return {
+            id: id,
+            name: name,
+            role: "",
+            team: "Villager",
+            vote: "",
+            hasSeenRole: false,
+            hasDoneNightAction: false,
+            isMiddleCard: isMiddleCard,
+            roleChain: []
+        }
+    }
+
     socket.on("create-lobby", (playerName) => {
 
         const lobby = {
@@ -33,28 +47,9 @@ io.on("connection", async (socket) => {
         }
 
         for (let i = 0; i < 3; i++) {
-            const middleCard = {
-                id: crypto.randomUUID(),
-                name: "middle-card" + (i + 1),
-                role: "",
-                team: "Villager",
-                vote: "",
-                hasSeenRole: false,
-                hasDoneNightAction: false,
-                isMiddleCard: true
-            }
-            lobby.cards.push(middleCard);
+            lobby.cards.push(createCard(crypto.randomUUID(), "middle-card" + (i + 1), true));
         }
-        lobby.cards.push({
-            id: socket.id,
-            name: playerName,
-            role: "",
-            team: "Villager",
-            vote: "",
-            hasSeenRole: false,
-            hasDoneNightAction: false,
-            isMiddleCard: false
-        });
+        lobby.cards.push(createCard(socket.id, playerName, false));
         lobbies.push(lobby);
 
         socket.emit("send-to-game", lobbies[lobbies.length - 1].id);
@@ -65,16 +60,7 @@ io.on("connection", async (socket) => {
         const lobby = lobbies.find(l => l.id === lobbyId);
         if (!lobby) return;
 
-        lobby.cards.push({
-            id: socket.id,
-            name: name,
-            role: "",
-            team: "Villager",
-            vote: "",
-            hasSeenRole: false,
-            hasDoneNightAction: false,
-            isMiddleCard: false
-        });
+        lobby.cards.push(createCard(socket.id, name, false));
         socket.emit("send-to-game", lobby.id);
         io.emit("update-lobbies", lobbies);
     });
@@ -131,6 +117,7 @@ io.on("connection", async (socket) => {
 
             for (let i = 0; i < currentRoles.length; i++) {
                 lobby.cards[i].role = currentRoles[i].name;
+                lobby.cards[i].roleChain.push(currentRoles[i].name);
                 if (currentRoles[i].name === "Werewolf") {
                     lobby.cards[i].team = "Werewolf";
                 }
@@ -161,11 +148,10 @@ io.on("connection", async (socket) => {
             for (const card of lobby.cards) {
                 card.role = "";
                 card.team = "Villager";
-            }
-            for (const player of lobby.cards.filter(card => !card.isMiddleCard)) {
-                player.hasSeenRole = false;
-                player.hasDoneNightAction = false;
-                player.vote = "";
+                card.hasSeenRole = false;
+                card.hasDoneNightAction = false;
+                card.vote = "";
+                card.roleChain = [];
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -203,11 +189,13 @@ io.on("connection", async (socket) => {
                     const card1Role = card1.role;
                     const card1Team = card1.team;
                     card1.role = card2.role;
+                    card1.roleChain.push(card1.role);
                     card1.team = card2.team;
                     card2.role = card1Role;
+                    card2.roleChain.push(card2.role);
                     card2.team = card1Team;
                 }
-                console.log(JSON.stringify(lobby.cards.map(card => card.name + ": " + card.role)));
+                console.log(JSON.stringify(lobby.cards.map(card => card.name + ": " + card.roleChain)));
                 //
 
                 io.emit("reset-night-action-texts");
