@@ -95,8 +95,25 @@ io.on("connection", async (socket) => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby) {
             io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === socket.id).name + " has left");
-            lobby.cards = lobby.cards.filter(card => card.id !== socket.id);
-            if (lobby.cards.length === 3) lobbies = lobbies.filter(l => l.id !== lobby.id);
+            if (lobby.state === "waiting" || lobby.state === "select-roles" || lobby.state === "voting-results") {
+                lobby.cards = lobby.cards.filter(card => card.id !== socket.id);
+                if (lobby.state === "select-roles" && lobby.cards.length < 6) {
+                    lobby.state = "waiting";
+                }
+                if (lobby.cards.length === 3) lobbies = lobbies.filter(l => l.id !== lobby.id);
+            } else {
+                const player = lobby.cards.find(player => player.id === socket.id);
+                player.vote = "No-one";
+                player.hasSeenRole = true;
+                player.hasDoneNightAction = true;
+                checkEveryoneHasSeenRole();
+                setHasDoneNightAction();
+                checkEveryoneHasVoted(player.vote);
+                player.id = crypto.randomUUID() + "-disconnected";
+                if (lobby.cards.filter(card => !card.isMiddleCard).every(p => p.id.includes("-disconnected"))) {
+                    lobbies = lobbies.filter(l => l.id !== lobby.id);
+                }
+            }
             io.emit("update-lobbies", lobbies);
             socket.leave(lobby.id);
         }
@@ -158,6 +175,7 @@ io.on("connection", async (socket) => {
     socket.on("reset-lobby", () => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby) {
+            lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
             for (const card of lobby.cards) {
                 card.role = "";
                 card.team = "Villager";
@@ -175,8 +193,12 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("check-has-seen-role", () => {
+        checkEveryoneHasSeenRole();
+    });
+
+    function checkEveryoneHasSeenRole() {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
-        if (lobby) {
+        if (lobby && lobby.state === "look-at-role") {
             lobby.cards.find(player => player.id === socket.id).hasSeenRole = true;
             const players = lobby.cards.filter(card => !card.isMiddleCard);
             if (!players.every(player => player.hasSeenRole)) {
@@ -237,79 +259,99 @@ io.on("connection", async (socket) => {
                 }, 1000);
             }, 1000);
         }
-    });
+    }
 
     socket.on("has-done-night-action", () => {
+        setHasDoneNightAction();
+    });
+
+    function setHasDoneNightAction() {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
-        if (lobby) {
-            for (const player of lobby.cards) {
-                if (player.id === socket.id) {
-                    player.hasDoneNightAction = true;
-                }
-            }
+        if (lobby && lobby.state === "night") {
+            lobby.cards.find(player => player.id === socket.id).hasDoneNightAction = true;
             io.emit("update-lobbies", lobbies);
         }
-    });
+    }
 
     socket.on("set-has-voted", (votedPlayerName) => {
+        checkEveryoneHasVoted(votedPlayerName);
+    });
+
+    function checkEveryoneHasVoted(votedPlayerName) {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
-        if (lobby) {
+        if (lobby && lobby.state === "voting") {
+
             const players = lobby.cards.filter(card => !card.isMiddleCard);
-            players.find(player => player.id === socket.id).vote = votedPlayerName;
+            lobby.cards.find(player => player.id === socket.id).vote = votedPlayerName;
             io.emit("update-lobbies", lobbies);
-            if (players.filter(player => player.vote).length === players.length) {
-                lobby.state = "voting-results";
+            if (!players.every(player => player.vote)) return;
 
-                // evaluate who has won
+            lobby.state = "voting-results";
+
+            // evaluate who has won
+            for (const player of players) {
+                player.voteAmount = 0;
+                for (const player1 of players) {
+                    if (player.id === player1.id) continue;
+
+                    if (player1.vote === player.name) {
+                        player.voteAmount++;
+                    }
+                }
+            }
+            lobby.voteResultText = "No werewolves has been killed";
+            lobby.winningTeam = "Werewolf";
+
+            let mostVotes = 0;
+            for (const player of players) {
+                if (mostVotes < player.voteAmount) {
+                    mostVotes = player.voteAmount;
+                }
+            }
+            if (mostVotes > 1) {
                 for (const player of players) {
-                    player.voteAmount = 0;
-                    for (const player1 of players) {
-                        if (player.id === player1.id) continue;
-
-                        if (player1.vote === player.name) {
-                            player.voteAmount++;
-                        }
+                    if (player.voteAmount >= mostVotes) {
+                        player.dies = true;
                     }
                 }
-                lobby.voteResultText = "No werewolves has been killed";
-                lobby.winningTeam = "Werewolf";
-
-                let mostVotes = 0;
                 for (const player of players) {
-                    if (mostVotes < player.voteAmount) {
-                        mostVotes = player.voteAmount;
-                    }
-                }
-                if (mostVotes > 1) {
-                    for (const player of players) {
-                        if (player.voteAmount >= mostVotes) {
-                            player.dies = true;
-                        }
-                    }
-                    for (const player of players) {
-                        if (player.dies && player.role === "Werewolf") {
-                            lobby.voteResultText = "At least 1 werewolf has been killed";
-                            lobby.winningTeam = "Villager";
-                        }
-                    }
-                }
-
-                if (!players.find(player => player.role === "Werewolf")) {
-                    if (!players.find(player => player.dies)) {
-                        lobby.voteResultText = "No player has been killed and their are no werewolves.";
+                    if (player.dies && player.role === "Werewolf") {
+                        lobby.voteResultText = "At least 1 werewolf has been killed";
                         lobby.winningTeam = "Villager";
                     }
-                    if (players.find(player => player.dies)) {
-                        lobby.voteResultText = "A player has been killed and their are no werewolves.";
-                        lobby.winningTeam = "No-one";
-                    }
+                }
+            }
+
+            if (!players.find(player => player.role === "Werewolf")) {
+                if (!players.find(player => player.dies)) {
+                    lobby.voteResultText = "No player has been killed and their are no werewolves.";
+                    lobby.winningTeam = "Villager";
+                }
+                if (players.find(player => player.dies)) {
+                    lobby.voteResultText = "A player has been killed and their are no werewolves.";
+                    lobby.winningTeam = "No-one";
+                }
+            }
+
+            io.emit("update-lobbies", lobbies);
+            io.to(lobby.id).emit("everyone-voted");
+
+            let lobbyCloseCount = 0;
+            const lobbyCloseInterval = setInterval(() => {
+                lobbyCloseCount++;
+                if (lobby.state !== "voting-results") {
+                    clearInterval(lobbyCloseInterval);
                 }
 
-                io.emit("update-lobbies", lobbies);
-                io.to(lobby.id).emit("everyone-voted");
-            }
+                if (lobbyCloseCount > 180) {
+                    io.to(lobby.id).emit("broadcast-message", "The lobby closed due to inactivity");
+                    io.socketsLeave(lobby.id);
+                    lobbies = lobbies.filter(l => l.id !== lobby.id);
+                    io.emit("update-lobbies", lobbies);
+                }
+            }, 1000);
         }
-    });
+    }
 
     socket.on("add-swap", ({priority, swap}) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
