@@ -51,6 +51,7 @@ io.on("connection", async (socket) => {
             lobby.cards.push(createCard(crypto.randomUUID(), "middle-card" + (i + 1), true));
         }
         lobby.cards.push(createCard(socket.id, playerName, false));
+        socket.join(lobby.id);
         lobbies.push(lobby);
 
         io.emit("update-lobbies", lobbies);
@@ -61,6 +62,7 @@ io.on("connection", async (socket) => {
         if (!lobby) return;
 
         lobby.cards.push(createCard(socket.id, name, false));
+        socket.join(lobby.id);
         io.emit("update-lobbies", lobbies);
     });
 
@@ -92,15 +94,16 @@ io.on("connection", async (socket) => {
     function handlePlayerLeave() {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby) {
-            io.emit("broadcast-message", lobby.cards.find(player => player.id === socket.id).name + " has left");
+            io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === socket.id).name + " has left");
             lobby.cards = lobby.cards.filter(card => card.id !== socket.id);
             if (lobby.cards.length === 3) lobbies = lobbies.filter(l => l.id !== lobby.id);
             io.emit("update-lobbies", lobbies);
+            socket.leave(lobby.id);
         }
     }
 
     socket.on("request-role-selection", (lobbyId) => {
-        io.emit("show-select-roles-screen", lobbyId);
+        io.to(lobbyId).emit("show-select-roles-screen", lobbyId);
     });
 
     socket.on("request-update-selected-roles", ({lobbyId, role}) => {
@@ -181,7 +184,7 @@ io.on("connection", async (socket) => {
             }
             lobby.state = "night";
             io.emit("update-lobbies", lobbies);
-            io.emit("setup-night");
+            io.to(lobby.id).emit("setup-night");
 
             // night cycle
             let nightCounter = 0;
@@ -215,7 +218,7 @@ io.on("connection", async (socket) => {
                 }
                 clearInterval(nightCycle);
                 lobby.state = "day";
-                io.emit("reset-night-action-texts");
+                io.to(lobby.id).emit("reset-night-action-texts");
 
                 // day cycle
                 let discussionTime = 6;
@@ -303,7 +306,7 @@ io.on("connection", async (socket) => {
                 }
 
                 io.emit("update-lobbies", lobbies);
-                io.emit("everyone-voted");
+                io.to(lobby.id).emit("everyone-voted");
             }
         }
     });
@@ -331,6 +334,7 @@ io.on("connection", async (socket) => {
                         player.hasDoneNightAction = false;
                     }
                 }
+                socket.join(lobby.id);
                 io.emit("update-lobbies", lobbies);
                 if (lobby.state === "night") {
                     socket.emit("setup-night");
