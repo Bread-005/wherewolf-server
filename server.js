@@ -50,7 +50,8 @@ io.on("connection", async (socket) => {
             hasSeenRole: false,
             hasDoneNightAction: false,
             isMiddleCard: isMiddleCard,
-            roleChain: []
+            roleChain: [],
+            selectedCards: []
         }
     }
 
@@ -62,7 +63,8 @@ io.on("connection", async (socket) => {
             cards: [],
             state: "waiting",
             selectedRoles: [],
-            pendingSwaps: []
+            pendingSwaps: [],
+            discussTime: 180
         }
 
         for (let i = 0; i < 3; i++) {
@@ -133,7 +135,10 @@ io.on("connection", async (socket) => {
                 }
             }
             io.emit("update-lobbies", lobbies);
-            io.sockets.sockets.get(targetId).leave(lobby.id);
+            const socketTarget = io.sockets.sockets.get(targetId);
+            if (socketTarget) {
+                socketTarget.leave(lobby.id);
+            }
         }
     }
 
@@ -367,9 +372,12 @@ io.on("connection", async (socket) => {
                             team: card.team,
                             vote: card.vote,
                             voteAmount: card.voteAmount,
-                            isAlive: !card.dies
+                            isAlive: !card.dies,
+                            selectedCards: card.selectedCards
                         }
                     }),
+                    winningTeams: lobby.winningTeam,
+                    discussionTime: lobby.discussionTime,
                     startTime: lobby.startTime,
                     endTime: new Date()
                 });
@@ -435,6 +443,24 @@ io.on("connection", async (socket) => {
             io.sockets.sockets.get(targetId).emit("broadcast-message", "You were kicked from the lobby.");
             lobby.cards = lobby.cards.filter(c => c.id !== targetId);
             io.emit("update-lobbies", lobbies);
+        }
+    });
+
+    socket.on("change-discuss-time", (discussTime) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
+        if (lobby) {
+            lobby.discussTime = discussTime;
+            io.emit("update-lobbies", lobby);
+        }
+    });
+
+    socket.on("set-selected-cards", (selectedCards) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.id === socket.id);
+            if (player) {
+                player.selectedCards = selectedCards;
+            }
         }
     });
 });
