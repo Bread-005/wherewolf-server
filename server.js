@@ -81,28 +81,28 @@ io.on("connection", async (socket) => {
 
             setTimeout(() => {
                 if (leavingPlayerNames.includes(player.name)) {
-                    handlePlayerLeave();
+                    handlePlayerLeave(socket.id);
                 }
             }, 3000);
         }
     });
 
     socket.on("leave", () => {
-        handlePlayerLeave();
+        handlePlayerLeave(socket.id);
     });
 
-    function handlePlayerLeave() {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+    function handlePlayerLeave(targetId) {
+        const lobby = lobbies.find(l => l.cards.find(player => player.id === targetId));
         if (lobby) {
-            io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === socket.id).name + " has left");
+            io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === targetId).name + " has left");
             if (lobby.state === "waiting" || lobby.state === "select-roles" || lobby.state === "voting-results") {
-                lobby.cards = lobby.cards.filter(card => card.id !== socket.id);
+                lobby.cards = lobby.cards.filter(card => card.id !== targetId);
                 if (lobby.state === "select-roles" && lobby.cards.length < 6) {
                     lobby.state = "waiting";
                 }
                 if (lobby.cards.length === 3) lobbies = lobbies.filter(l => l.id !== lobby.id);
             } else {
-                const player = lobby.cards.find(player => player.id === socket.id);
+                const player = lobby.cards.find(player => player.id === targetId);
                 player.vote = "No-one";
                 player.hasSeenRole = true;
                 player.hasDoneNightAction = true;
@@ -115,7 +115,7 @@ io.on("connection", async (socket) => {
                 }
             }
             io.emit("update-lobbies", lobbies);
-            socket.leave(lobby.id);
+            io.sockets.sockets.get(targetId).leave(lobby.id);
         }
     }
 
@@ -382,6 +382,17 @@ io.on("connection", async (socket) => {
                     socket.emit("setup-night");
                 }
             }
+        }
+    });
+
+    socket.on("kick-player", (targetId) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === targetId));
+
+        if (lobby) {
+            handlePlayerLeave(targetId);
+            io.sockets.sockets.get(targetId).emit("broadcast-message", "You were kicked from the lobby.");
+            lobby.cards = lobby.cards.filter(c => c.id !== targetId);
+            io.emit("update-lobbies", lobbies);
         }
     });
 });
