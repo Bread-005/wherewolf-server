@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const {MongoClient} = require("mongodb");
 
 const app = express();
 const server = http.createServer(app);
@@ -14,8 +15,25 @@ const io = new Server(server, {
 
 app.use(express.static(__dirname));
 
+require("dotenv").config();
+
 let lobbies = [];
 let leavingPlayerNames = [];
+
+const connectionString = "mongodb+srv://" + process.env.DATABASE_USERNAME + ":" + process.env.DATABASE_PASSWORD + "@cluster0.rwh4ibp.mongodb.net/?retryWrites=true&w=majority";
+const client = new MongoClient(connectionString);
+let database;
+
+async function connectDatabase() {
+    try {
+        await client.connect();
+        database = client.db("Wherewolf");
+        console.log("MongoDB connected");
+    }
+    catch (error) {
+        console.error("MongoDB Connection Error", error);
+    }
+}
 
 io.on("connection", async (socket) => {
 
@@ -79,19 +97,19 @@ io.on("connection", async (socket) => {
             const player = lobby.cards.find(player => player.id === socket.id);
             leavingPlayerNames.push(player.name);
 
-            setTimeout(() => {
+            setTimeout(async () => {
                 if (leavingPlayerNames.includes(player.name)) {
-                    handlePlayerLeave(socket.id);
+                    await handlePlayerLeave(socket.id);
                 }
             }, 3000);
         }
     });
 
-    socket.on("leave", () => {
-        handlePlayerLeave(socket.id);
+    socket.on("leave", async () => {
+        await handlePlayerLeave(socket.id);
     });
 
-    function handlePlayerLeave(targetId) {
+    async function handlePlayerLeave(targetId) {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === targetId));
         if (lobby) {
             io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === targetId).name + " has left");
@@ -108,7 +126,7 @@ io.on("connection", async (socket) => {
                 player.hasDoneNightAction = true;
                 checkEveryoneHasSeenRole();
                 setHasDoneNightAction();
-                checkEveryoneHasVoted(player.vote);
+                await checkEveryoneHasVoted(player.vote);
                 player.id = crypto.randomUUID() + "-disconnected";
                 if (lobby.cards.filter(card => !card.isMiddleCard).every(p => p.id.includes("-disconnected"))) {
                     lobbies = lobbies.filter(l => l.id !== lobby.id);
@@ -139,6 +157,7 @@ io.on("connection", async (socket) => {
     socket.on("set-roles-for-all-cards", (lobbyId) => {
         const lobby = lobbies.find(l => l.id === lobbyId);
         if (lobby) {
+            lobby.startTime = new Date();
             const currentRoles = [];
             for (const role of lobby.selectedRoles) {
                 currentRoles.push(role);
@@ -273,11 +292,11 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("set-has-voted", (votedPlayerName) => {
-        checkEveryoneHasVoted(votedPlayerName);
+    socket.on("set-has-voted", async (votedPlayerName) => {
+        await checkEveryoneHasVoted(votedPlayerName);
     });
 
-    function checkEveryoneHasVoted(votedPlayerName) {
+    async function checkEveryoneHasVoted(votedPlayerName) {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby && lobby.state === "voting") {
 
@@ -333,6 +352,29 @@ io.on("connection", async (socket) => {
                 }
             }
 
+            // database game storing
+            if (!(players.find(p => p.name === "Bread1") && players.find(p => p.name === "Bread2") && players.find(p => p.name === "Bread3"))) {
+                const connection = database.collection("games");
+                const games = await connection.find().toArray();
+                connection.insertOne({
+                    id: games.length + 1,
+                    lobbyName: lobby.name,
+                    selectedRoles: lobby.selectedRoles.map(role => role.name),
+                    cards: lobby.cards.map(card => {
+                        return {
+                            name: card.name,
+                            roles: card.roleChain,
+                            team: card.team,
+                            vote: card.vote,
+                            voteAmount: card.voteAmount,
+                            isAlive: !card.dies
+                        }
+                    }),
+                    startTime: lobby.startTime,
+                    endTime: new Date()
+                });
+            }
+
             io.emit("update-lobbies", lobbies);
             io.to(lobby.id).emit("everyone-voted");
 
@@ -385,11 +427,11 @@ io.on("connection", async (socket) => {
         }
     });
 
-    socket.on("kick-player", (targetId) => {
+    socket.on("kick-player", async (targetId) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === targetId));
 
         if (lobby) {
-            handlePlayerLeave(targetId);
+            await handlePlayerLeave(targetId);
             io.sockets.sockets.get(targetId).emit("broadcast-message", "You were kicked from the lobby.");
             lobby.cards = lobby.cards.filter(c => c.id !== targetId);
             io.emit("update-lobbies", lobbies);
@@ -397,6 +439,7 @@ io.on("connection", async (socket) => {
     });
 });
 
-server.listen(3003,"0.0.0.0", () => {
+server.listen(3003,"0.0.0.0", async () => {
     console.log("Access game on https://bread-005.github.io/wherewolf-app/index.html");
+    await connectDatabase();
 });
