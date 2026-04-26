@@ -66,7 +66,8 @@ io.on("connection", async (socket) => {
             selectedRoles: [],
             pendingSwaps: [],
             discussTime: 180,
-            remainingDiscussTime: 180
+            remainingDiscussTime: 180,
+            messages: []
         }
 
         for (let i = 0; i < 3; i++) {
@@ -469,7 +470,10 @@ io.on("connection", async (socket) => {
 
         if (lobby) {
             await handlePlayerLeave(targetId);
-            io.sockets.sockets.get(targetId).emit("broadcast-message", "You were kicked from the lobby.");
+            const socketTarget = io.sockets.sockets.get(targetId);
+            if (socketTarget) {
+                socketTarget.emit("broadcast-message", "You were kicked from the lobby.");
+            }
             lobby.cards = lobby.cards.filter(c => c.id !== targetId);
             io.emit("update-lobbies", lobbies);
         }
@@ -511,6 +515,33 @@ io.on("connection", async (socket) => {
             }
         }
     }
+
+    socket.on("send-chat-message", (message) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.id === socket.id);
+            if (player) {
+                const messageObject = {
+                    sender: player.name,
+                    message: message
+                }
+                lobby.messages.push(messageObject);
+                io.to(lobby.id).emit("receive-chat-message", messageObject);
+            }
+        }
+    });
+
+    socket.on("send-console-message", (message) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const messageObject = {
+                sender: "System",
+                message: message
+            }
+            lobby.messages.push(messageObject);
+            io.to(lobby.id).emit("receive-chat-message", messageObject);
+        }
+    });
 });
 
 server.listen(3003,"0.0.0.0", async () => {
