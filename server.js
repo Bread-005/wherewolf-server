@@ -51,7 +51,8 @@ io.on("connection", async (socket) => {
             hasDoneNightAction: false,
             isMiddleCard: isMiddleCard,
             roleChain: [],
-            selectedCards: []
+            selectedCards: [],
+            hasSkippedToVote: false
         }
     }
 
@@ -64,7 +65,8 @@ io.on("connection", async (socket) => {
             state: "waiting",
             selectedRoles: [],
             pendingSwaps: [],
-            discussTime: 180
+            discussTime: 180,
+            remainingDiscussTime: 180
         }
 
         for (let i = 0; i < 3; i++) {
@@ -126,8 +128,10 @@ io.on("connection", async (socket) => {
                 player.vote = "No-one";
                 player.hasSeenRole = true;
                 player.hasDoneNightAction = true;
+                player.hasSkippedToVote = true;
                 checkEveryoneHasSeenRole();
                 setHasDoneNightAction();
+                checkEveryoneHasSkippedToVote();
                 await checkEveryoneHasVoted(player.vote);
                 player.id = crypto.randomUUID() + "-disconnected";
                 if (lobby.cards.filter(card => !card.isMiddleCard).every(p => p.id.includes("-disconnected"))) {
@@ -207,6 +211,7 @@ io.on("connection", async (socket) => {
                 card.hasDoneNightAction = false;
                 card.vote = "";
                 card.roleChain = [];
+                card.hasSkippedToVote = false;
                 delete card.dies;
                 delete card.voteAmount;
             }
@@ -239,7 +244,7 @@ io.on("connection", async (socket) => {
                 lobby.displayText = "It is night time - " +
                     ((nightCounter / 60 < 10 ? "0" : "") + Math.floor(nightCounter / 60)) + ":" +
                     (nightCounter % 60 < 10 ? "0" : "") + nightCounter % 60;
-                io.emit("update-lobbies", lobbies);
+                io.to(lobby.id).emit("update-lobbies", lobbies);
 
                 const players = lobby.cards.filter(card => !card.isMiddleCard);
                 if (!players.every(player => player.hasDoneNightAction)) {
@@ -267,19 +272,19 @@ io.on("connection", async (socket) => {
                 io.to(lobby.id).emit("reset-night-action-texts");
 
                 // day cycle
-                let discussionTime = 6;
+                lobby.remainingDiscussTime = lobby.discussTime;
                 const dayCycle = setInterval(() => {
-                    discussionTime--;
+                    lobby.remainingDiscussTime--;
                     lobby.displayText = "It is now day time - " +
-                        ((discussionTime / 60 < 10 ? "0" : "") + Math.floor(discussionTime / 60)) + ":" +
-                        (discussionTime % 60 < 10 ? "0" : "") + discussionTime % 60;
+                        ((lobby.remainingDiscussTime / 60 < 10 ? "0" : "") + Math.floor(lobby.remainingDiscussTime / 60)) + ":" +
+                        (lobby.remainingDiscussTime % 60 < 10 ? "0" : "") + lobby.remainingDiscussTime % 60;
 
-                    if (discussionTime <= 0) {
+                    if (lobby.remainingDiscussTime <= 0) {
                         clearInterval(dayCycle);
                         lobby.state = "voting";
                         io.emit("update-lobbies", lobbies);
                     }
-                    io.emit("update-lobbies", lobbies);
+                    io.to(lobby.id).emit("update-lobbies", lobbies);
                 }, 1000);
             }, 1000);
         }
@@ -398,6 +403,7 @@ io.on("connection", async (socket) => {
                     io.socketsLeave(lobby.id);
                     lobbies = lobbies.filter(l => l.id !== lobby.id);
                     io.emit("update-lobbies", lobbies);
+                    clearInterval(lobbyCloseInterval);
                 }
             }, 1000);
         }
@@ -450,7 +456,7 @@ io.on("connection", async (socket) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
         if (lobby) {
             lobby.discussTime = discussTime;
-            io.emit("update-lobbies", lobby);
+            io.emit("update-lobbies", lobbies);
         }
     });
 
@@ -463,6 +469,25 @@ io.on("connection", async (socket) => {
             }
         }
     });
+
+    socket.on("skip-to-vote", () => {
+        checkEveryoneHasSkippedToVote();
+    });
+
+    function checkEveryoneHasSkippedToVote() {
+        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
+        if (lobby) {
+            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const player = players.find(player => player.id === socket.id);
+            if (player) {
+                player.hasSkippedToVote = true;
+
+                if (players.every(p => p.hasSkippedToVote)) {
+                    lobby.remainingDiscussTime = 6;
+                }
+            }
+        }
+    }
 });
 
 server.listen(3003,"0.0.0.0", async () => {
