@@ -52,7 +52,8 @@ io.on("connection", async (socket) => {
             isMiddleCard: isMiddleCard,
             roleChain: [],
             selectedCards: [],
-            hasSkippedToVote: false
+            hasSkippedToVote: false,
+            startingRole: ""
         }
     }
 
@@ -119,10 +120,17 @@ io.on("connection", async (socket) => {
         if (lobby) {
             io.to(lobby.id).emit("broadcast-message", lobby.cards.find(player => player.id === targetId).name + " has left");
             if (lobby.state === "waiting" || lobby.state === "select-roles" || lobby.state === "voting-results") {
-                lobby.cards = lobby.cards.filter(card => card.id !== targetId);
+                if (lobby.state === "voting-results") {
+                    const player = lobby.cards.find(player => player.id === targetId);
+                    player.id = crypto.randomUUID() + "-disconnected";
+                }
+                if (lobby.state !== "voting-results") {
+                    lobby.cards = lobby.cards.filter(card => card.id !== targetId);
+                }
                 if (lobby.state === "select-roles" && lobby.cards.length < 6) {
                     lobby.state = "waiting";
                 }
+
                 if (lobby.cards.filter(card => !card.isMiddleCard).every(player => player.id.includes("-disconnected"))) {
                     lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
                 }
@@ -179,7 +187,8 @@ io.on("connection", async (socket) => {
             for (let i = 0; i < currentRoles.length; i++) {
                 lobby.cards[i].role = currentRoles[i].name;
                 lobby.cards[i].roleChain.push(currentRoles[i].name);
-                if (currentRoles[i].name === "Werewolf") {
+                lobby.cards[i].startingRole = currentRoles[i].name;
+                if (currentRoles[i].name === "Werewolf" || currentRoles[i].name === "Minion") {
                     lobby.cards[i].team = "Werewolf";
                 }
                 if (currentRoles[i].name === "Tanner") {
@@ -219,6 +228,7 @@ io.on("connection", async (socket) => {
                 card.vote = "";
                 card.roleChain = [];
                 card.hasSkippedToVote = false;
+                card.startingRole = "";
                 delete card.dies;
                 delete card.voteAmount;
                 delete card.mayLookAtTheirCard;
@@ -281,14 +291,14 @@ io.on("connection", async (socket) => {
                     swapsHappened = true;
                 }
                 for (const player of players) {
-                    if (player.roleChain[0] === "Insomniac") {
+                    if (player.startingRole === "Insomniac") {
                         player.mayLookAtTheirCard = true;
                     }
                 }
                 if (!players.every(player => player.hasDoneNightAction)) {
                     return;
                 }
-                if (!players.find(p => p.roleChain[0] === "Insomniac")) {
+                if (!players.find(p => p.startingRole === "Insomniac")) {
                     const threeToTenSecondDelay = Math.floor(Math.random() * (10000 - 2000 + 1)) + 2000;
                     setTimeout(() => {
                         nightEnds = true;
@@ -375,24 +385,33 @@ io.on("connection", async (socket) => {
             }
 
             if (players.find(player => player.team === "Werewolf")) {
-                lobby.voteResultText = "No werewolves has been killed";
+                lobby.voteResultText = "No werewolves died.";
                 lobby.winningTeam = "Werewolf";
 
                 if (players.find(p => p.role === "Werewolf" && p.dies)) {
-                    lobby.voteResultText = "At least 1 werewolf has been killed.";
+                    lobby.voteResultText = "a werewolf died.";
                     lobby.winningTeam = "Villager";
                 }
             }
 
             if (!players.find(player => player.team === "Werewolf")) {
                 if (!players.find(player => player.dies)) {
-                    lobby.voteResultText = "No player has been killed and their are no werewolves.";
+                    lobby.voteResultText = "Everyone lives";
                     lobby.winningTeam = "Villager";
                 }
                 if (players.find(player => player.dies)) {
-                    lobby.voteResultText = "A player has been killed and there are no werewolves.";
+                    lobby.voteResultText = "Someone died";
                     lobby.winningTeam = "No-one";
                 }
+                if (players.find(p => p.role === "Minion" && !p.dies)) {
+                    lobby.voteResultText = "The Minion survived";
+                    lobby.winningTeam = "Werewolf";
+                }
+                if (players.find(p => p.role === "Minion" && p.dies)) {
+                    lobby.voteResultText = "The Minion died";
+                    lobby.winningTeam = "Villager";
+                }
+                lobby.voteResultText += " and there are no werewolves.";
             }
 
             if (players.find(p => p.role === "Tanner" && p.dies)) {
@@ -471,8 +490,8 @@ io.on("connection", async (socket) => {
                 leavingPlayerNames = leavingPlayerNames.filter(name => name !== player.name);
                 if (lobby.state === "night" && !player.hasDoneNightAction) {
                     player.hasDoneNightAction = true;
-                    if (player.role === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
-                        player.role === "Insomniac" || player.roleChain[0] === "Insomniac") {
+                    if (player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
+                        player.startingRole === "Insomniac") {
                         player.hasDoneNightAction = false;
                     }
                 }
