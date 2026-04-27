@@ -182,11 +182,15 @@ io.on("connection", async (socket) => {
                 if (currentRoles[i].name === "Werewolf") {
                     lobby.cards[i].team = "Werewolf";
                 }
+                if (currentRoles[i].name === "Tanner") {
+                    lobby.cards[i].team = "Tanner";
+                }
             }
 
             const players = lobby.cards.filter(card => !card.isMiddleCard);
             for (const player of players) {
-                if (lobby.cards.find(card => card.id === player.id).role === "Villager") {
+                const role = lobby.cards.find(card => card.id === player.id).role;
+                if (role === "Villager" || role === "Hunter" || role === "Tanner") {
                     player.hasDoneNightAction = true;
                 }
             }
@@ -285,7 +289,7 @@ io.on("connection", async (socket) => {
                     return;
                 }
                 if (!players.find(p => p.roleChain[0] === "Insomniac")) {
-                    const threeToTenSecondDelay = Math.floor(Math.random() * (10000 - 3000 + 1)) + 3000;
+                    const threeToTenSecondDelay = Math.floor(Math.random() * (10000 - 2000 + 1)) + 2000;
                     setTimeout(() => {
                         nightEnds = true;
                     }, threeToTenSecondDelay);
@@ -351,8 +355,6 @@ io.on("connection", async (socket) => {
                     }
                 }
             }
-            lobby.voteResultText = "No werewolves has been killed";
-            lobby.winningTeam = "Werewolf";
 
             let mostVotes = 0;
             for (const player of players) {
@@ -362,26 +364,44 @@ io.on("connection", async (socket) => {
             }
             if (mostVotes > 1) {
                 for (const player of players) {
-                    if (player.voteAmount >= mostVotes) {
+                    if (player.voteAmount === mostVotes) {
                         player.dies = true;
-                    }
-                }
-                for (const player of players) {
-                    if (player.dies && player.role === "Werewolf") {
-                        lobby.voteResultText = "At least 1 werewolf has been killed";
-                        lobby.winningTeam = "Villager";
+
+                        if (player.role === "Hunter") {
+                            players.find(p => p.name === player.vote).dies = true;
+                        }
                     }
                 }
             }
 
-            if (!players.find(player => player.role === "Werewolf")) {
+            if (players.find(player => player.team === "Werewolf")) {
+                lobby.voteResultText = "No werewolves has been killed";
+                lobby.winningTeam = "Werewolf";
+
+                if (players.find(p => p.role === "Werewolf" && p.dies)) {
+                    lobby.voteResultText = "At least 1 werewolf has been killed.";
+                    lobby.winningTeam = "Villager";
+                }
+            }
+
+            if (!players.find(player => player.team === "Werewolf")) {
                 if (!players.find(player => player.dies)) {
                     lobby.voteResultText = "No player has been killed and their are no werewolves.";
                     lobby.winningTeam = "Villager";
                 }
                 if (players.find(player => player.dies)) {
-                    lobby.voteResultText = "A player has been killed and their are no werewolves.";
+                    lobby.voteResultText = "A player has been killed and there are no werewolves.";
                     lobby.winningTeam = "No-one";
+                }
+            }
+
+            if (players.find(p => p.role === "Tanner" && p.dies)) {
+                if (lobby.winningTeam.includes("Villager")) {
+                    lobby.winningTeam += " and Tanner";
+                    lobby.voteResultText += " and the Tanner died.";
+                } else {
+                    lobby.winningTeam = "Tanner";
+                    lobby.voteResultText = "The Tanner died.";
                 }
             }
 
