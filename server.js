@@ -393,8 +393,13 @@ io.on("connection", async (socket) => {
                 for (const player of players) {
                     if (player.voteAmount === mostVotes) {
                         player.dies = true;
+                    }
+                }
 
-                        if (player.role === "Hunter") {
+                // check Hunter deaths twice because Doppelganger-Hunter
+                for (let i = 0; i < 2; i++) {
+                    for (const player of players) {
+                        if (player.role === "Hunter" || player.role === "Doppelganger" && player.startingRole === "Hunter") {
                             players.find(p => p.name === player.vote).dies = true;
                         }
                     }
@@ -431,13 +436,17 @@ io.on("connection", async (socket) => {
                 lobby.voteResultText += " and there are no werewolves.";
             }
 
-            if (players.find(p => p.role === "Tanner" && p.dies)) {
-                if (lobby.winningTeam.includes("Villager")) {
-                    lobby.winningTeam += " and Tanner";
-                    lobby.voteResultText += " and the Tanner died.";
-                } else {
-                    lobby.winningTeam = "Tanner";
-                    lobby.voteResultText = "The Tanner died.";
+            for (const player of players) {
+                if (player.dies) {
+                    if (player.role === "Tanner" || player.team === "Doppelganger-Tanner") {
+                        if (lobby.winningTeam.length > 0) {
+                            lobby.winningTeam += " and " + player.team;
+                            lobby.voteResultText += " and the " + player.team + " died.";
+                        } else {
+                            lobby.winningTeam = player.team;
+                            lobby.voteResultText = "The " + player.team + " died.";
+                        }
+                    }
                 }
             }
 
@@ -543,12 +552,14 @@ io.on("connection", async (socket) => {
         }
     });
 
-    socket.on("set-selected-cards", (selectedCards) => {
+    socket.on("add-selected-cards", (selectedCards) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
         if (lobby) {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player) {
-                player.selectedCards = selectedCards;
+                for (const card of selectedCards) {
+                    player.selectedCards.push(card);
+                }
             }
         }
     });
