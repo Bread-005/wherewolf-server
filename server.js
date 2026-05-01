@@ -63,7 +63,8 @@ io.on("connection", async (socket) => {
             DGhasViewedCard: false,
             mayDoLateAction: false,
             sawWaitMessage: false,
-            viewableStartingRole: ""
+            viewableStartingRole: "",
+            isSentinelled: false
         }
     }
 
@@ -247,6 +248,7 @@ io.on("connection", async (socket) => {
                 card.mayDoLateAction = false;
                 card.sawWaitMessage = false;
                 card.viewableStartingRole = "";
+                card.isSentinelled = false;
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -285,7 +287,7 @@ io.on("connection", async (socket) => {
                 // manage swaps
                 if (!swapsHappened) {
                     if (players.every(p => p.startingRole !== "Robber" && p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
-                        && (p.roleChain[0] !== "Doppelganger" || p.hasClickedConfirm || allRoles.find(role => role.name === p.startingRole).nightOrder > 8.9) || p.hasClickedConfirm)) {
+                        && (p.roleChain[0] !== "Doppelganger" || p.hasClickedConfirm || allRoles.find(role => role.name === p.startingRole)?.nightOrder > 8.9) || p.hasClickedConfirm)) {
                         lobby.pendingSwaps.sort((a, b) => a.priority - b.priority);
                         for (const swap of lobby.pendingSwaps) {
                             swapCards(lobby, swap);
@@ -506,7 +508,7 @@ io.on("connection", async (socket) => {
                     player.hasDoneNightAction = true;
                     player.hasClickedConfirm = true;
                     if (player.startingRole === "Doppelganger" || player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
-                        !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole).nightOrder > 8.9) {
+                        !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole)?.nightOrder > 8.9) {
                         player.hasDoneNightAction = false;
                         player.hasClickedConfirm = false;
                     }
@@ -664,6 +666,17 @@ io.on("connection", async (socket) => {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player) {
                 player.sawWaitMessage = true;
+                io.to(lobby.id).emit("update-lobbies", lobbies);
+            }
+        }
+    });
+
+    socket.on("set-is-sentinelled", (name) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.name === name);
+            if (player) {
+                player.isSentinelled = true;
                 io.to(lobby.id).emit("update-lobbies", lobbies);
             }
         }
