@@ -286,8 +286,8 @@ io.on("connection", async (socket) => {
 
                 // manage swaps
                 if (!swapsHappened) {
-                    if (players.every(p => p.startingRole !== "Robber" && p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
-                        && (p.roleChain[0] !== "Doppelganger" || p.hasClickedConfirm || allRoles.find(role => role.name === p.startingRole)?.nightOrder > 8.9) || p.hasClickedConfirm)) {
+                    if (players.every(p => p.startingRole !== "Copycat" && p.startingRole !== "Robber" && p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
+                        && (p.roleChain[0] !== "Doppelganger" && (p.roleChain[0] !== "Copycat" || p.selectedCards[0]?.role !== "Doppelganger") || p.hasClickedConfirm || allRoles.find(role => role.name === p.startingRole)?.nightOrder > 8.9) || p.hasClickedConfirm)) {
                         lobby.pendingSwaps.sort((a, b) => a.priority - b.priority);
                         for (const swap of lobby.pendingSwaps) {
                             swapCards(lobby, swap);
@@ -335,9 +335,11 @@ io.on("connection", async (socket) => {
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
             player.hasClickedConfirm = true;
-            if (player.roleChain[0] === "Doppelganger" && !player.DGhasViewedCard) {
+            if ((player.roleChain[0] === "Doppelganger" || player.roleChain[0] === "Copycat") && !player.DGhasViewedCard) {
                 player.hasClickedConfirm = false;
-                player.DGhasViewedCard = true;
+                if (player.startingRole !== "Copycat" && player.startingRole !== "Doppelganger") {
+                    player.DGhasViewedCard = true;
+                }
                 player.sawWaitMessage = false;
             } else {
                 player.hasDoneNightAction = true;
@@ -387,9 +389,10 @@ io.on("connection", async (socket) => {
                 }
 
                 // check Hunter deaths twice because Doppelganger-Hunter
-                for (let i = 0; i < 2; i++) {
+                for (let i = 0; i < 3; i++) {
                     for (const player of players) {
-                        if (player.role === "Hunter" || player.role === "Doppelganger" && player.startingRole === "Hunter") {
+                        if (player.role === "Hunter" ||
+                            (player.role === "Copycat" || player.role === "Doppelganger") && player.startingRole === "Hunter") {
                             players.find(p => p.name === player.vote).dies = true;
                         }
                     }
@@ -428,7 +431,7 @@ io.on("connection", async (socket) => {
 
             for (const player of players) {
                 if (player.dies) {
-                    if (player.role === "Tanner" || player.team === "Doppelganger-Tanner") {
+                    if (player.team.includes("Tanner")) {
                         if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
                             lobby.winningTeam += " and " + player.team;
                             lobby.voteResultText += " and the " + player.team + " died.";
@@ -507,7 +510,8 @@ io.on("connection", async (socket) => {
                 if (lobby.state === "night" && !player.hasDoneNightAction) {
                     player.hasDoneNightAction = true;
                     player.hasClickedConfirm = true;
-                    if (player.startingRole === "Doppelganger" || player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
+                    if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger" ||
+                        player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
                         !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole)?.nightOrder > 8.9) {
                         player.hasDoneNightAction = false;
                         player.hasClickedConfirm = false;
@@ -542,14 +546,9 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("add-selected-cards", (selectedCards) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
-        if (lobby) {
-            const player = lobby.cards.find(player => player.id === socket.id);
-            if (player) {
-                for (const card of selectedCards) {
-                    player.selectedCards.push(card);
-                }
-            }
+        const player = getPlayer();
+        for (const card of selectedCards) {
+            player.selectedCards.push(card);
         }
     });
 
@@ -625,16 +624,9 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("turn-over-card", () => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
-        if (lobby) {
-            const player = lobby.cards.find(player => player.id === socket.id);
-            if (player) {
-                const selectedCard = lobby.cards.find(card => card.name === player.selectedCards.at(-1).name);
-                selectedCard.isRevealed = true;
-                io.to(lobby.id).emit("update-lobbies", lobbies);
-            }
-        }
+    socket.on("turn-over-card", (name) => {
+        getPlayer(name).isRevealed = true;
+        updateLobby();
     });
 
     socket.on("has-clicked-confirm", () => {
@@ -645,12 +637,12 @@ io.on("connection", async (socket) => {
                 return;
             }
             player.hasClickedConfirm = true;
-            if (player.startingRole === "Doppelganger") {
-                player.startingRole = player.selectedCards[0].role;
+            if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger") {
                 player.team = player.selectedCards[0].team;
                 if (player.team === "Tanner") {
-                    player.team = "Doppelganger-Tanner";
+                    player.team = player.startingRole + "-Tanner";
                 }
+                player.startingRole = player.selectedCards.at(-1).role;
             }
             io.to(lobby.id).emit("update-lobbies", lobbies);
         }
@@ -661,26 +653,36 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("saw-wait-message", () => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
-        if (lobby) {
-            const player = lobby.cards.find(player => player.id === socket.id);
-            if (player) {
-                player.sawWaitMessage = true;
-                io.to(lobby.id).emit("update-lobbies", lobbies);
-            }
-        }
+        getPlayer().sawWaitMessage = true;
+        updateLobby();
     });
 
     socket.on("set-is-sentinelled", (name) => {
+        getPlayer(name).isSentinelled = true;
+        updateLobby();
+    });
+
+    function getPlayer(name = "") {
         const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
-            const player = lobby.cards.find(player => player.name === name);
-            if (player) {
-                player.isSentinelled = true;
-                io.to(lobby.id).emit("update-lobbies", lobbies);
+            const player = lobby.cards.find(player => player.id === socket.id);
+            const player1 = lobby.cards.find(player => player.name === name);
+            if (player && !name) {
+                return player;
+            }
+            if (player1 && name) {
+                return player1;
             }
         }
-    });
+        return {};
+    }
+
+    function updateLobby() {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            io.to(lobby.id).emit("update-lobbies", lobbies);
+        }
+    }
 });
 
 server.listen(3003,"0.0.0.0", async () => {
