@@ -64,7 +64,9 @@ io.on("connection", async (socket) => {
             mayDoLateAction: false,
             sawWaitMessage: false,
             viewableStartingRole: "",
-            isSentinelled: false
+            isSentinelled: false,
+            hasMetWerewolves: false,
+            hasDoneAlphaSwap: false
         }
     }
 
@@ -80,7 +82,9 @@ io.on("connection", async (socket) => {
             discussTime: 180,
             remainingDiscussTime: 180,
             messages: [],
-            nightTimer: 0
+            nightTimer: 0,
+            winningTeam: "",
+            voteResultText: ""
         }
 
         for (let i = 0; i < 3; i++) {
@@ -142,7 +146,7 @@ io.on("connection", async (socket) => {
                 if (lobby.state !== "voting-results") {
                     lobby.cards = lobby.cards.filter(card => card.id !== targetId);
                 }
-                if (lobby.state === "select-roles" && lobby.cards.length < 6) {
+                if (lobby.state === "select-roles" && lobby.cards.filter(card => !card.isMiddleCard).length < 3) {
                     lobby.state = "waiting";
                 }
 
@@ -172,45 +176,53 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("request-role-selection", (lobbyId) => {
-        io.to(lobbyId).emit("show-select-roles-screen", lobbyId);
-    });
-
     socket.on("request-update-selected-roles", ({lobbyId, role}) => {
         const lobby = lobbies.find(l => l.id === lobbyId);
-        if (!lobby) return;
-
-        const index = lobby.selectedRoles.findIndex(r => r.id === role.id);
-        if (index > -1) {
-            lobby.selectedRoles.splice(index, 1);
-        } else {
-            lobby.selectedRoles.push(role);
+        if (lobby) {
+            const index = lobby.selectedRoles.findIndex(r => r.id === role.id);
+            if (index > -1) {
+                if (lobby.selectedRoles[index].name === "Alpha Wolf") {
+                    lobby.cards = lobby.cards.filter(card => card.name !== "middle-card4");
+                }
+                lobby.selectedRoles.splice(index, 1);
+            } else {
+                lobby.selectedRoles.push(role);
+                if (!lobby.cards.find(card => card.name === "middle-card4") && lobby.selectedRoles.find(r => r.name === "Alpha Wolf")) {
+                    lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4", true));
+                }
+            }
+            io.to(lobbyId).emit("update-lobbies", lobbies);
         }
-        io.emit("update-lobbies", lobbies);
     });
 
     socket.on("set-roles-for-all-cards", (lobbyId) => {
         const lobby = lobbies.find(l => l.id === lobbyId);
         if (lobby) {
             lobby.startTime = new Date();
-            const currentRoles = [];
+            const roleNames = [];
             for (const role of lobby.selectedRoles) {
-                currentRoles.push(role);
+                roleNames.push(role.name);
             }
             if (!isTesting(lobby)) {
-                currentRoles.sort(() => Math.random() - 0.5);
+                roleNames.sort(() => Math.random() - 0.5);
             }
 
-            for (let i = 0; i < currentRoles.length; i++) {
-                lobby.cards[i].role = currentRoles[i].name;
-                lobby.cards[i].roleChain.push(currentRoles[i].name);
-                lobby.cards[i].startingRole = currentRoles[i].name;
-                lobby.cards[i].viewableStartingRole = currentRoles[i].name;
-                if (currentRoles[i].name === "Werewolf" || currentRoles[i].name === "Minion") {
-                    lobby.cards[i].team = "Werewolf";
+            for (const card of lobby.cards) {
+                const result = card.name === "middle-card4" ? "Werewolf" : roleNames[0];
+                card.role = result;
+                card.roleChain.push(result);
+                card.startingRole = result;
+                card.viewableStartingRole = result;
+
+                if (card.role === "Werewolf" || card.role === "Alpha Wolf" || card.role === "Minion" || card.name === "middle-card4") {
+                    card.team = "Werewolf";
                 }
-                if (currentRoles[i].name === "Tanner") {
-                    lobby.cards[i].team = "Tanner";
+                if (card.role === "Tanner") {
+                    card.team = "Tanner";
+                }
+
+                if (card.name !== "middle-card4") {
+                    roleNames.shift();
                 }
             }
             lobby.state = "look-at-role";
@@ -249,9 +261,13 @@ io.on("connection", async (socket) => {
                 card.sawWaitMessage = false;
                 card.viewableStartingRole = "";
                 card.isSentinelled = false;
+                card.hasMetWerewolves = false;
+                card.hasDoneAlphaSwap = false;
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
+            lobby.winningTeam = "";
+            lobby.voteResultText = "";
             io.emit("update-lobbies", lobbies);
         }
     });
@@ -286,7 +302,7 @@ io.on("connection", async (socket) => {
 
                 // manage swaps
                 if (!swapsHappened) {
-                    if (players.every(p => p.startingRole !== "Copycat" && p.startingRole !== "Robber" && p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
+                    if (players.every(p => p.startingRole !== "Copycat" && p.startingRole !== "Alpha Wolf" && p.startingRole !== "Robber" && p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
                         && (p.roleChain[0] !== "Doppelganger" && (p.roleChain[0] !== "Copycat" || p.selectedCards[0]?.role !== "Doppelganger") || p.hasClickedConfirm || allRoles.find(role => role.name === p.startingRole)?.nightOrder > 8.9) || p.hasClickedConfirm)) {
                         lobby.pendingSwaps.sort((a, b) => a.priority - b.priority);
                         for (const swap of lobby.pendingSwaps) {
@@ -334,17 +350,27 @@ io.on("connection", async (socket) => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
-            player.hasClickedConfirm = true;
             if ((player.roleChain[0] === "Doppelganger" || player.roleChain[0] === "Copycat") && !player.DGhasViewedCard) {
                 player.hasClickedConfirm = false;
                 if (player.startingRole !== "Copycat" && player.startingRole !== "Doppelganger") {
                     player.DGhasViewedCard = true;
                 }
                 player.sawWaitMessage = false;
-            } else {
-                player.hasDoneNightAction = true;
-                io.to(lobby.id).emit("update-lobbies", lobbies);
+                updateLobby();
+                return;
             }
+            if (player.startingRole === "Alpha Wolf" && !player.hasMetWerewolves && player.roleChain[0] !== "Doppelganger" && (player.roleChain[0] !== "Copycat" || player.selectedCards[0]?.role !== "Doppelganger")) {
+                player.hasMetWerewolves = true;
+                player.hasClickedConfirm = false;
+                updateLobby();
+                return;
+            }
+            player.hasDoneNightAction = true;
+            player.hasClickedConfirm = true;
+            if (player.startingRole.toLowerCase().includes("wolf")) {
+                player.hasMetWerewolves = true;
+            }
+            updateLobby();
         }
     });
 
@@ -399,17 +425,19 @@ io.on("connection", async (socket) => {
                 }
             }
 
-            if (players.find(player => player.role === "Werewolf")) {
-                lobby.voteResultText = "No werewolves died.";
-                lobby.winningTeam = "Werewolf";
+            if (players.find(player => player.role.toLowerCase().includes("wolf"))) {
+                if (!players.find(player => player.team.includes("Tanner") && player.dies)) {
+                    lobby.voteResultText = "No werewolves died.";
+                    lobby.winningTeam = "Werewolf";
+                }
 
-                if (players.find(p => p.role === "Werewolf" && p.dies)) {
+                if (players.find(p => p.role.toLowerCase().includes("wolf") && p.dies)) {
                     lobby.voteResultText = "a werewolf died.";
                     lobby.winningTeam = "Villager";
                 }
             }
 
-            if (!players.find(player => player.role === "Werewolf")) {
+            if (!players.find(player => player.role.toLowerCase().includes("wolf"))) {
                 if (!players.find(player => player.dies)) {
                     lobby.voteResultText = "Everyone lives";
                     lobby.winningTeam = "Villager";
@@ -479,7 +507,7 @@ io.on("connection", async (socket) => {
                     clearInterval(lobbyCloseInterval);
                 }
 
-                if (lobbyCloseCount > 180) {
+                if (lobbyCloseCount > 60 * 10) { // after 10 minutes the lobby closes
                     io.to(lobby.id).emit("broadcast-message", "The lobby closed due to inactivity");
                     io.socketsLeave(lobby.id);
                     lobbies = lobbies.filter(l => l.id !== lobby.id);
@@ -510,7 +538,7 @@ io.on("connection", async (socket) => {
                 if (lobby.state === "night" && !player.hasDoneNightAction) {
                     player.hasDoneNightAction = true;
                     player.hasClickedConfirm = true;
-                    if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger" ||
+                    if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger" || player.startingRole === "Alpha Wolf" && !player.hasDoneAlphaSwap ||
                         player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
                         !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole)?.nightOrder > 8.9) {
                         player.hasDoneNightAction = false;
@@ -550,6 +578,7 @@ io.on("connection", async (socket) => {
         for (const card of selectedCards) {
             player.selectedCards.push(card);
         }
+        updateLobby();
     });
 
     socket.on("skip-to-vote", () => {
@@ -606,6 +635,13 @@ io.on("connection", async (socket) => {
             lobby.cards.find(card => card.name === swap[1].name).viewableStartingRole = firstCardRole;
             lobby.cards.find(card => card.name === swap[0].name).viewableStartingRole = secondCardRole;
             swapCards(lobby, {swap: swap});
+
+            // set Alpha Wolf has swapped to true
+            const player = getPlayer();
+            if (swap[0].name === "middle-card4" && player.startingRole === "Alpha Wolf") {
+                player.hasDoneAlphaSwap = true;
+                updateLobby();
+            }
         }
     });
 
