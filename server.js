@@ -85,7 +85,8 @@ io.on("connection", async (socket) => {
             messages: [],
             nightTimer: 0,
             winningTeam: "",
-            voteResultText: ""
+            voteResultText: "",
+            randomActions: []
         }
 
         for (let i = 0; i < 3; i++) {
@@ -168,6 +169,11 @@ io.on("connection", async (socket) => {
                 if (lobby.cards.filter(card => !card.isMiddleCard).every(p => p.id.includes("-disconnected"))) {
                     lobbies = lobbies.filter(l => l.id !== lobby.id);
                 }
+                for (const action of lobby.randomActions) {
+                    if (!action.seenPlayers.includes(player.name)) {
+                        action.seenPlayers.push(player.name);
+                    }
+                }
             }
             io.emit("update-lobbies", lobbies);
             const socketTarget = io.sockets.sockets.get(targetId);
@@ -196,8 +202,8 @@ io.on("connection", async (socket) => {
         }
     });
 
-    socket.on("set-roles-for-all-cards", (lobbyId) => {
-        const lobby = lobbies.find(l => l.id === lobbyId);
+    socket.on("start-game", () => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
             lobby.startTime = new Date();
             const roleNames = [];
@@ -221,11 +227,49 @@ io.on("connection", async (socket) => {
                 if (card.role === "Tanner") {
                     card.team = "Tanner";
                 }
+                if (card.role === "Mortician") {
+                    card.team = "Mortician";
+                }
 
                 if (card.name !== "middle-card4") {
                     roleNames.shift();
                 }
             }
+            if (lobby.selectedRoles.find(role => role.name === "Mortician")) {
+                const morticianRandomAction = [];
+                for (let i = 0; i < 20; i++) {
+                    morticianRandomAction.push("You may look at a card from yourself.");
+                }
+                for (let i = 0; i < 20; i++) {
+                    morticianRandomAction.push("You may look at a card from the neighbor on your left.");
+                }
+                for (let i = 0; i < 20; i++) {
+                    morticianRandomAction.push("You may look at a card from the neighbor on your right.");
+                }
+                for (let i = 0; i < 30; i++) {
+                    morticianRandomAction.push("You may look at a card from one of your neighbors.");
+                }
+                for (let i = 0; i < 10; i++) {
+                    morticianRandomAction.push("You may look at both cards from both of your neighbors.");
+                }
+                morticianRandomAction.sort(() => Math.random() - 0.5);
+                lobby.randomActions.push({
+                    nightOrder: 13.1,
+                    role: "Mortician",
+                    action: morticianRandomAction[0],
+                    seenPlayers: [lobby.cards.find(card => card.role === "Mortician").name],
+                });
+
+                if (lobby.selectedRoles.find(role => role.name === "Doppelganger")) {
+                    lobby.randomActions.push({
+                        nightOrder: 13.11,
+                        role: "Doppelganger-Mortician",
+                        action: morticianRandomAction[1],
+                        seenPlayers: [],
+                    });
+                }
+            }
+
             lobby.state = "look-at-role";
         }
         io.emit("update-lobbies", lobbies);
@@ -270,6 +314,7 @@ io.on("connection", async (socket) => {
             lobby.pendingSwaps = [];
             lobby.winningTeam = "";
             lobby.voteResultText = "";
+            lobby.randomActions = [];
             io.emit("update-lobbies", lobbies);
         }
     });
@@ -319,6 +364,13 @@ io.on("connection", async (socket) => {
                 }
                 if (!players.every(player => player.hasDoneNightAction)) {
                     return;
+                }
+                for (const player of players) {
+                    for (const action of lobby.randomActions) {
+                        if (!action.seenPlayers.includes(player.name)) {
+                            return;
+                        }
+                    }
                 }
                 const oneToTenSecondDelay = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
                 setTimeout(() => {
@@ -428,7 +480,7 @@ io.on("connection", async (socket) => {
                     }
                 }
 
-                // check Hunter deaths twice because Doppelganger-Hunter
+                // check Hunter deaths three times because Doppelganger-Hunter and Copycat-Hunter
                 for (let i = 0; i < 3; i++) {
                     for (const player of players) {
                         if (player.role === "Hunter" ||
@@ -471,6 +523,7 @@ io.on("connection", async (socket) => {
                 lobby.voteResultText += " and there are no werewolves.";
             }
 
+            // evaluate if Tanner has won
             for (const player of players) {
                 if (player.dies) {
                     if (player.team.includes("Tanner")) {
@@ -480,6 +533,25 @@ io.on("connection", async (socket) => {
                         } else {
                             lobby.winningTeam = player.team;
                             lobby.voteResultText = "The " + player.team + " died.";
+                        }
+                    }
+                }
+            }
+
+            // evaluate if Mortician has won
+            for (const player of players) {
+                if (player.team.includes("Mortician")) {
+                    const myIndex = players.findIndex(p => p.id === player.id);
+                    const leftNeighbor = players[(myIndex + 1) % players.length];
+                    const rightNeighbor = players[(myIndex - 1 + players.length) % players.length];
+
+                    if (leftNeighbor.dies || rightNeighbor.dies) {
+                        if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
+                            lobby.winningTeam += " and " + player.team;
+                            lobby.voteResultText += " and one of " + player.name + "'s neighbors died.";
+                        } else {
+                            lobby.winningTeam = player.team;
+                            lobby.voteResultText = "One of " + player.name + "'s neighbors died.";
                         }
                     }
                 }
@@ -688,9 +760,15 @@ io.on("connection", async (socket) => {
             }
             player.hasClickedConfirm = true;
             if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger") {
-                player.team = player.selectedCards[0].team;
-                if (player.team === "Tanner") {
-                    player.team = player.startingRole + "-Tanner";
+                if (player.startingRole === "Copycat" && player.selectedCards.at(-1).role === "Mortician") {
+                    lobby.randomActions.find(action => action.role === "Mortician").seenPlayers.push(player.name);
+                }
+                if (player.startingRole === "Doppelganger" && player.selectedCards.at(-1).role === "Mortician") {
+                    lobby.randomActions.find(action => action.role === "Doppelganger-Mortician").seenPlayers.push(player.name);
+                }
+                player.team = player.selectedCards.at(-1).team;
+                if (player.team !== "Villager" && player.team !== "Werewolf") {
+                    player.team = player.startingRole + "-" + player.team;
                 }
                 player.startingRole = player.selectedCards.at(-1).role;
                 player.hasClickedConfirm = false;
@@ -740,6 +818,22 @@ io.on("connection", async (socket) => {
             io.to(lobby.id).emit("update-lobbies", lobbies);
         }
     }
+
+    socket.on("confirm-seen-random-action", () => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const player = lobby.cards.find(player => player.id === socket.id);
+            if (player) {
+                for (const action of lobby.randomActions) {
+                    if (!action.seenPlayers.includes(player.name)) {
+                        action.seenPlayers.push(player.name);
+                        updateLobby();
+                        break;
+                    }
+                }
+            }
+        }
+    });
 });
 
 server.listen(3003,"0.0.0.0", async () => {
