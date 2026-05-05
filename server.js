@@ -86,7 +86,8 @@ io.on("connection", async (socket) => {
             nightTimer: 0,
             winningTeam: "",
             voteResultText: "",
-            randomActions: []
+            randomActions: [],
+            tempMessages: []
         }
 
         for (let i = 0; i < 3; i++) {
@@ -315,6 +316,7 @@ io.on("connection", async (socket) => {
             lobby.winningTeam = "";
             lobby.voteResultText = "";
             lobby.randomActions = [];
+            lobby.tempMessages = [];
             io.emit("update-lobbies", lobbies);
         }
     });
@@ -573,11 +575,20 @@ io.on("connection", async (socket) => {
                             vote: card.vote,
                             voteAmount: card.voteAmount,
                             isAlive: !card.dies,
-                            selectedCards: card.selectedCards.map(card => card.name)
+                            selectedCards: card.selectedCards.map(card => card.name),
+                            marks: [] // card.markChain
                         }
                     }),
                     winningTeams: lobby.winningTeam,
                     discussTime: lobby.discussTime,
+                    nightLength: lobby.nightTimer,
+                    messages: lobby.tempMessages,
+                    randomActions: lobby.randomActions.map(action => {
+                        return {
+                            role: action.role,
+                            action: action.action
+                        }
+                    }),
                     startTime: lobby.startTime,
                     endTime: new Date()
                 });
@@ -696,6 +707,7 @@ io.on("connection", async (socket) => {
                     message: message
                 }
                 lobby.messages.push(messageObject);
+                lobby.tempMessages.push(messageObject);
                 io.to(lobby.id).emit("receive-chat-message", messageObject);
             }
         }
@@ -709,6 +721,7 @@ io.on("connection", async (socket) => {
                 message: message
             }
             lobby.messages.push(messageObject);
+            lobby.tempMessages.push(messageObject);
             io.to(lobby.id).emit("receive-chat-message", messageObject);
         }
     });
