@@ -101,13 +101,6 @@ io.on("connection", async (socket) => {
         io.emit("update-lobbies", lobbies);
     });
 
-    socket.on("request-lobby-data", (lobbyId) => {
-        const lobby = lobbies.find(l => l.id === lobbyId);
-        if (lobby) {
-            socket.emit("update-lobbies", lobbies);
-        }
-    });
-
     socket.on("disconnect", () => {
         const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
@@ -173,8 +166,8 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("request-update-selected-roles", ({lobbyId, role}) => {
-        const lobby = lobbies.find(l => l.id === lobbyId);
+    socket.on("request-update-selected-roles", (role) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
             const index = lobby.selectedRoles.findIndex(r => r.id === role.id);
             if (index > -1) {
@@ -188,7 +181,7 @@ io.on("connection", async (socket) => {
                     lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4", true));
                 }
             }
-            io.to(lobbyId).emit("update-lobbies", lobbies);
+            io.to(lobby.id).emit("update-select-roles-screen", lobby);
         }
     });
 
@@ -265,8 +258,8 @@ io.on("connection", async (socket) => {
         io.emit("update-lobbies", lobbies);
     });
 
-    socket.on("update-state", ({id, state}) => {
-        const lobby = lobbies.find(l => l.id === id);
+    socket.on("update-state", (state) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
             lobby.state = state;
         }
@@ -526,6 +519,7 @@ io.on("connection", async (socket) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
         if (lobby) {
             lobby.discussTime = discussTime;
+            io.to(lobby.id).emit("update-select-roles-screen", lobby);
             io.to(lobby.id).emit("update-lobbies", lobbies);
         }
     });
