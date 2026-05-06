@@ -1,7 +1,10 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const {MongoClient} = require("mongodb");
+import express from "express";
+import {Server} from "socket.io";
+import http from "http";
+import {fileURLToPath} from "url";
+import {dirname} from "path";
+import {connectDatabase, saveGameToDatabase} from "./database.js";
+import {evaluateVotingResults} from "./votingResults.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -13,29 +16,14 @@ const io = new Server(server, {
     }
 });
 
-app.use(express.static(__dirname));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-require("dotenv").config();
+app.use(express.static(__dirname));
 
 let lobbies = [];
 let leavingPlayerNames = [];
 let allRoles = [];
-
-const connectionString = "mongodb+srv://" + process.env.DATABASE_USERNAME + ":" + process.env.DATABASE_PASSWORD + "@cluster0.rwh4ibp.mongodb.net/?retryWrites=true&w=majority";
-const client = new MongoClient(connectionString);
-let database;
-
-async function connectDatabase() {
-    try {
-        await client.connect();
-        database = client.db("Wherewolf");
-        allRoles = await fetch("https://raw.githubusercontent.com/Bread-005/wherewolf-app/main/roles.json").then(res => res.json());
-        console.log("MongoDB connected");
-    }
-    catch (error) {
-        console.error("MongoDB Connection Error", error);
-    }
-}
 
 io.on("connection", async (socket) => {
 
@@ -67,7 +55,8 @@ io.on("connection", async (socket) => {
             isSentinelled: false,
             hasMetWerewolves: false,
             hasDoneExtraWolfAction: false,
-            didFirstPart: false
+            didFirstPart: false,
+            secondaryRole: ""
         }
     }
 
@@ -310,6 +299,7 @@ io.on("connection", async (socket) => {
                 card.hasMetWerewolves = false;
                 card.hasDoneExtraWolfAction = false;
                 card.didFirstPart = false;
+                card.secondaryRole = "";
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -457,141 +447,11 @@ io.on("connection", async (socket) => {
 
             lobby.state = "voting-results";
 
-            // evaluate who has won
-            for (const player of players) {
-                player.voteAmount = 0;
-                for (const player1 of players) {
-                    if (player.id === player1.id) continue;
-
-                    if (player1.vote === player.name) {
-                        player.voteAmount++;
-                    }
-                }
-            }
-
-            let mostVotes = 0;
-            for (const player of players) {
-                if (mostVotes < player.voteAmount) {
-                    mostVotes = player.voteAmount;
-                }
-            }
-            if (mostVotes > 1) {
-                for (const player of players) {
-                    if (player.voteAmount === mostVotes) {
-                        player.dies = true;
-                    }
-                }
-
-                // check Hunter deaths three times because Doppelganger-Hunter and Copycat-Hunter
-                for (let i = 0; i < 3; i++) {
-                    for (const player of players) {
-                        if (player.role === "Hunter" ||
-                            (player.role === "Copycat" || player.role === "Doppelganger") && player.startingRole === "Hunter") {
-                            players.find(p => p.name === player.vote).dies = true;
-                        }
-                    }
-                }
-            }
-
-            if (players.find(player => player.role.toLowerCase().includes("wolf"))) {
-                if (!players.find(player => player.team.includes("Tanner") && player.dies)) {
-                    lobby.voteResultText = "No werewolves died.";
-                    lobby.winningTeam = "Werewolf";
-                }
-
-                if (players.find(p => p.role.toLowerCase().includes("wolf") && p.dies)) {
-                    lobby.voteResultText = "a werewolf died.";
-                    lobby.winningTeam = "Villager";
-                }
-            }
-
-            if (!players.find(player => player.role.toLowerCase().includes("wolf"))) {
-                if (!players.find(player => player.dies)) {
-                    lobby.voteResultText = "Everyone lives";
-                    lobby.winningTeam = "Villager";
-                }
-                if (players.find(player => player.dies)) {
-                    lobby.voteResultText = "Someone died";
-                    lobby.winningTeam = "No-one";
-                }
-                if (players.find(p => p.role === "Minion" && !p.dies)) {
-                    lobby.voteResultText = "The Minion survived";
-                    lobby.winningTeam = "Werewolf";
-                }
-                if (players.find(p => p.role === "Minion" && p.dies)) {
-                    lobby.voteResultText = "The Minion died";
-                    lobby.winningTeam = "Villager";
-                }
-                lobby.voteResultText += " and there are no werewolves.";
-            }
-
-            // evaluate if Tanner has won
-            for (const player of players) {
-                if (player.dies) {
-                    if (player.team.includes("Tanner")) {
-                        if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
-                            lobby.winningTeam += " and " + player.team;
-                            lobby.voteResultText += " and the " + player.team + " died.";
-                        } else {
-                            lobby.winningTeam = player.team;
-                            lobby.voteResultText = "The " + player.team + " died.";
-                        }
-                    }
-                }
-            }
-
-            // evaluate if Mortician has won
-            for (const player of players) {
-                if (player.team.includes("Mortician")) {
-                    const myIndex = players.findIndex(p => p.id === player.id);
-                    const leftNeighbor = players[(myIndex + 1) % players.length];
-                    const rightNeighbor = players[(myIndex - 1 + players.length) % players.length];
-
-                    if (leftNeighbor.dies || rightNeighbor.dies) {
-                        if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
-                            lobby.winningTeam += " and " + player.team;
-                            lobby.voteResultText += " and one of " + player.name + "'s neighbors died.";
-                        } else {
-                            lobby.winningTeam = player.team;
-                            lobby.voteResultText = "One of " + player.name + "'s neighbors died.";
-                        }
-                    }
-                }
-            }
+            evaluateVotingResults(lobby, players);
 
             // database game storing
             if (!isTesting(lobby)) {
-                const connection = database.collection("games");
-                const games = await connection.find().toArray();
-                connection.insertOne({
-                    id: games.length + 1,
-                    lobbyName: lobby.name,
-                    selectedRoles: lobby.selectedRoles.map(role => role.name),
-                    cards: lobby.cards.map(card => {
-                        return {
-                            name: card.name,
-                            roles: card.roleChain,
-                            team: card.team,
-                            vote: card.vote,
-                            voteAmount: card.voteAmount,
-                            isAlive: !card.dies,
-                            selectedCards: card.selectedCards.map(card => card.name),
-                            marks: [] // card.markChain
-                        }
-                    }),
-                    winningTeams: lobby.winningTeam,
-                    discussTime: lobby.discussTime,
-                    nightLength: lobby.nightTimer,
-                    messages: lobby.tempMessages,
-                    randomActions: lobby.randomActions.map(action => {
-                        return {
-                            role: action.role,
-                            action: action.action
-                        }
-                    }),
-                    startTime: lobby.startTime,
-                    endTime: new Date()
-                });
+                await saveGameToDatabase(lobby);
             }
 
             io.emit("update-lobbies", lobbies);
@@ -750,12 +610,15 @@ io.on("connection", async (socket) => {
         if (card1 && card2) {
             const card1Role = card1.role;
             const card1Team = card1.team;
+            const card1SecondaryRole = card1.secondaryRole;
             card1.role = card2.role;
             card1.roleChain.push(card1.role);
             card1.team = card2.team;
+            card1.secondaryRole = card2.secondaryRole;
             card2.role = card1Role;
             card2.roleChain.push(card2.role);
             card2.team = card1Team;
+            card2.secondaryRole = card1SecondaryRole;
         }
     }
 
@@ -784,6 +647,7 @@ io.on("connection", async (socket) => {
                     player.team = player.startingRole + "-" + player.team;
                 }
                 player.startingRole = player.selectedCards.at(-1).role;
+                player.secondaryRole = player.startingRole;
                 player.hasClickedConfirm = false;
             }
             if ((player.startingRole === "Alpha Wolf" || player.startingRole === "Mystic Wolf") && !player.hasMetWerewolves) {
@@ -849,7 +713,13 @@ io.on("connection", async (socket) => {
     });
 });
 
+function setAllRoles(roles) {
+    allRoles = roles;
+}
+
 server.listen(3003,"0.0.0.0", async () => {
     console.log("Access game on https://bread-005.github.io/wherewolf-app/index.html");
     await connectDatabase();
 });
+
+export {setAllRoles};
