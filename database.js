@@ -31,7 +31,7 @@ async function saveGameToDatabase(lobby) {
                 roles: card.roleChain,
                 team: card.team,
                 vote: card.vote,
-                voteAmount: card.voteAmount,
+                voteAmount: lobby.cards.filter(card1 => card1.vote === card.name).length,
                 isAlive: !card.dies,
                 selectedCards: card.selectedCards.map(card => card.name),
                 marks: [] // card.markChain

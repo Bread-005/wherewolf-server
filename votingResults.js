@@ -12,6 +12,15 @@ function evaluateVotingResults(lobby, players) {
         }
     }
 
+    for (const player of players) {
+        if (player.role === "Prince" || player.secondaryRole === "Prince") {
+            player.voteAmount = 0;
+        }
+        if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+            players.find(p => p.name === player.vote).voteAmount = 0;
+        }
+    }
+
     let mostVotes = 0;
     for (const player of players) {
         if (mostVotes < player.voteAmount) {
@@ -25,11 +34,23 @@ function evaluateVotingResults(lobby, players) {
             }
         }
 
+        for (const player of players) {
+            if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+                players.find(p => p.name === player.vote).dies = false;
+            }
+        }
+
         // check Hunter deaths three times because Doppelganger-Hunter and Copycat-Hunter
         for (let i = 0; i < 3; i++) {
             for (const player of players) {
                 if (player.role === "Hunter" || player.secondaryRole === "Hunter") {
                     players.find(p => p.name === player.vote).dies = true;
+
+                    for (const player of players) {
+                        if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+                            players.find(p => p.name === player.vote).dies = false;
+                        }
+                    }
                 }
             }
         }
