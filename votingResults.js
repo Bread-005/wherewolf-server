@@ -1,5 +1,20 @@
 function evaluateVotingResults(lobby, players) {
 
+    // check Cursed Transform three times because Doppelganger-Cursed and Copycat-Cursed
+    for (let i = 0; i < 3; i++) {
+        for (const player of players) {
+            if (player.role === "Cursed" || player.secondaryRole === "Cursed") {
+                for (const player1 of players) {
+                    if ((player1.role.toLowerCase().includes("wolf") || player1.secondaryRole.toLowerCase().includes("wolf")) && player1.vote === player.name) {
+                        player.role = "Werewolf";
+                        player.team = "Werewolf";
+                        player.roleChain.push("Werewolf");
+                    }
+                }
+            }
+        }
+    }
+
     // evaluate who has won
     for (const player of players) {
         player.voteAmount = 0;
