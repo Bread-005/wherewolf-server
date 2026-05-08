@@ -136,6 +136,52 @@ function evaluateVotingResults(lobby, players) {
             }
         }
     }
+
+    // evaluate if Blob has won
+    const blobAction = lobby.randomActions.find(action => action.role === "Blob");
+    if (blobAction) {
+        const actionText = blobAction.action.toLowerCase();
+        for (const player of players) {
+            if (player.team.includes("Blob")) {
+                const blobIndex = players.findIndex(p => p.id === player.id);
+                const blobPlayers = new Set();
+                blobPlayers.add(player);
+
+                let leftCount = 0;
+                let rightCount = 0;
+
+                if (actionText.includes("each side")) {
+                    leftCount = parseInt(actionText.split(" ")[0]);
+                    rightCount = parseInt(actionText.split(" ")[0]);
+                }
+                if (actionText.includes("left")) {
+                    leftCount = parseInt(actionText.split(" ")[1]);
+                }
+                if (actionText.includes("right")) {
+                    rightCount = parseInt(actionText.split(" ")[1]);
+                }
+
+                for (let i = 1; i <= leftCount; i++) {
+                    const index = (blobIndex + i) % players.length;
+                    blobPlayers.add(players[index]);
+                }
+                for (let i = 1; i <= rightCount; i++) {
+                    const index = (blobIndex - i + players.length) % players.length;
+                    blobPlayers.add(players[index]);
+                }
+
+                if (Array.from(blobPlayers).every(p => !p.dies)) {
+                    if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
+                        lobby.winningTeam += " and " + player.team;
+                        lobby.voteResultText += " and all players in " + player.name + "'s Blob survived.";
+                    } else {
+                        lobby.winningTeam = player.team;
+                        lobby.voteResultText = "All players in " + player.name + "'s Blob survived.";
+                    }
+                }
+            }
+        }
+    }
 }
 
 export {evaluateVotingResults};

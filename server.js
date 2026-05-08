@@ -52,6 +52,7 @@ io.on("connection", async (socket) => {
             mayDoLateAction: false,
             sawWaitMessage: false,
             viewableStartingRole: "",
+            viewableStartingTeam: "",
             isSentinelled: false,
             hasMetWerewolves: false,
             hasDoneExtraWolfAction: false,
@@ -204,55 +205,39 @@ io.on("connection", async (socket) => {
                 card.roleChain.push(result);
                 card.startingRole = result;
                 card.viewableStartingRole = result;
+                card.viewableStartingTeam = result;
 
                 if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.name === "middle-card4") {
                     card.team = "Werewolf";
                 }
-                if (card.role === "Tanner") {
-                    card.team = "Tanner";
-                }
-                if (card.role === "Mortician") {
-                    card.team = "Mortician";
+                if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob") {
+                    card.team = card.role;
                 }
 
                 if (card.name !== "middle-card4") {
                     roleNames.shift();
                 }
             }
-            if (lobby.selectedRoles.find(role => role.name === "Mortician")) {
-                const morticianRandomAction = [];
-                for (let i = 0; i < 20; i++) {
-                    morticianRandomAction.push("You may look at a card from yourself.");
-                }
-                for (let i = 0; i < 20; i++) {
-                    morticianRandomAction.push("You may look at a card from the neighbor on your left.");
-                }
-                for (let i = 0; i < 20; i++) {
-                    morticianRandomAction.push("You may look at a card from the neighbor on your right.");
-                }
-                for (let i = 0; i < 30; i++) {
-                    morticianRandomAction.push("You may look at a card from one of your neighbors.");
-                }
-                for (let i = 0; i < 10; i++) {
-                    morticianRandomAction.push("You may look at both cards from both of your neighbors.");
-                }
-                morticianRandomAction.sort(() => Math.random() - 0.5);
-                lobby.randomActions.push({
-                    nightOrder: 13.1,
-                    role: "Mortician",
-                    action: morticianRandomAction[0],
-                    seenPlayers: [lobby.cards.find(card => card.role === "Mortician").name],
-                });
-
-                if (lobby.selectedRoles.find(role => role.name === "Doppelganger")) {
-                    lobby.randomActions.push({
-                        nightOrder: 13.11,
-                        role: "Doppelganger-Mortician",
-                        action: morticianRandomAction[1],
-                        seenPlayers: [],
-                    });
-                }
+            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const randomBlobActions = [];
+            if (players.length === 3) {
+                randomBlobActions.push({text: "Only the Blob itself is part of the Blob.", amount: 3});
             }
+            if (players.length > 3) {
+                if (players.length % 4 === 1) {
+                    randomBlobActions.push({text: ((players.length - 1) / 4) + " players on each side of the Blob, are now part of the Blob.\nBlob keep them and yourself alive in order to win.", amount: 40});
+                }
+                randomBlobActions.push({text: "The " + Math.floor(players.length / 2 - 0.1) + " players to your left, are now part of the Blob.\nBlob keep them and yourself alive in order to win.", amount: 30});
+                randomBlobActions.push({text: "The " + Math.floor(players.length / 2 - 0.1) + " players to your right, are now part of the Blob.\nBlob keep them and yourself alive in order to win.", amount: 30});
+            }
+            addRandomAction("Blob", 13, randomBlobActions);
+            addRandomAction("Mortician", 13.1, [
+                {text: "You may look at a card from yourself.", amount: 20},
+                {text: "You may look at a card from the neighbor on your left.", amount: 20},
+                {text: "You may look at a card from the neighbor on your right.", amount: 20},
+                {text: "You may look at a card from one of your neighbors.", amount: 30},
+                {text: "You may look at both cards from both of your neighbors.", amount: 10},
+            ]);
 
             lobby.state = "look-at-role";
         }
@@ -289,6 +274,7 @@ io.on("connection", async (socket) => {
                 card.mayDoLateAction = false;
                 card.sawWaitMessage = false;
                 card.viewableStartingRole = "";
+                card.viewableStartingTeam = "";
                 card.isSentinelled = false;
                 card.hasMetWerewolves = false;
                 card.hasDoneExtraWolfAction = false;
@@ -596,8 +582,12 @@ io.on("connection", async (socket) => {
         if (lobby) {
             const firstCardRole = lobby.cards.find(card => card.name === swap[0].name).role;
             const secondCardRole = lobby.cards.find(card => card.name === swap[1].name).role;
+            const firstCardTeam = lobby.cards.find(card => card.name === swap[0].name).team;
+            const secondCardTeam = lobby.cards.find(card => card.name === swap[1].name).team;
             lobby.cards.find(card => card.name === swap[1].name).viewableStartingRole = firstCardRole;
             lobby.cards.find(card => card.name === swap[0].name).viewableStartingRole = secondCardRole;
+            lobby.cards.find(card => card.name === swap[1].name).viewableStartingTeam = firstCardTeam;
+            lobby.cards.find(card => card.name === swap[0].name).viewableStartingTeam = secondCardTeam;
             swapCards(lobby, {swap: swap});
 
             // set Alpha Wolf has swapped to true
@@ -644,8 +634,8 @@ io.on("connection", async (socket) => {
                 player.hasClickedConfirm = false;
             }
             if (player.startingRole === "Paranormal Investigator") {
-                player.team = player.selectedCards.at(-1).team;
-                if (player.selectedCards.at(-1).role === "Copycat" || player.selectedCards.at(-1).role === "Doppelganger") {
+                player.team = player.selectedCards.at(-1).viewableStartingTeam;
+                if (player.selectedCards.at(-1).viewableStartingRole === "Copycat" || player.selectedCards.at(-1).viewableStartingRole === "Doppelganger") {
                     player.team = "Villager";
                 }
                 if (!player.didFirstPart) {
@@ -654,8 +644,8 @@ io.on("connection", async (socket) => {
                 if (player.team !== "Villager" && player.team !== "Werewolf") {
                     player.team = player.roleChain[0] + "-" + player.team;
                 }
-                if (player.selectedCards.at(-1).role.toLowerCase().includes("wolf")) {
-                    player.secondaryRole = "Werewolf";
+                if (player.team !== "Villager") {
+                    player.secondaryRole = player.selectedCards.at(-1).viewableStartingRole;
                 }
             }
             if (player.startingRole === "Witch" && !player.didFirstPart) {
@@ -732,6 +722,34 @@ io.on("connection", async (socket) => {
             }
         }
     });
+
+    function addRandomAction(roleName = "", nightOrder = 20, randomActions = [{text: "Nothing", amount: 2}]) {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby.selectedRoles.find(role => role.name === roleName)) {
+            const array = [];
+            for (const randomAction of randomActions) {
+                for (let i = 0; i < randomAction.amount; i++) {
+                    array.push(randomAction.text);
+                }
+            }
+            array.sort(() => Math.random() - 0.5);
+            lobby.randomActions.push({
+                nightOrder: nightOrder,
+                role: roleName,
+                action: array[0],
+                seenPlayers: roleName !== "Blob" ? [lobby.cards.find(card => card.role === roleName).name] : []
+            });
+
+            if (roleName !== "Blob" && lobby.selectedRoles.find(role => role.name === "Doppelganger")) {
+                lobby.randomActions.push({
+                    nightOrder: nightOrder + 0.01,
+                    role: "Doppelganger-" + roleName,
+                    action: array[1],
+                    seenPlayers: []
+                });
+            }
+        }
+    }
 });
 
 function setAllRoles(roles) {
