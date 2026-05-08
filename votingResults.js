@@ -71,19 +71,19 @@ function evaluateVotingResults(lobby, players) {
         }
     }
 
-    if (players.find(player => player.role.toLowerCase().includes("wolf"))) {
+    if (players.find(player => player.role.toLowerCase().includes("wolf") || player.secondaryRole.toLowerCase().includes("wolf"))) {
         if (!players.find(player => player.team.includes("Tanner") && player.dies)) {
             lobby.voteResultText = "No werewolves died.";
             lobby.winningTeam = "Werewolf";
         }
 
-        if (players.find(p => p.role.toLowerCase().includes("wolf") && p.dies)) {
+        if (players.find(p => (p.role.toLowerCase().includes("wolf") || p.secondaryRole.toLowerCase().includes("wolf")) && p.dies)) {
             lobby.voteResultText = "a werewolf died.";
             lobby.winningTeam = "Villager";
         }
     }
 
-    if (!players.find(player => player.role.toLowerCase().includes("wolf"))) {
+    if (!players.find(player => player.role.toLowerCase().includes("wolf") || player.secondaryRole.toLowerCase().includes("wolf"))) {
         if (!players.find(player => player.dies)) {
             lobby.voteResultText = "Everyone lives";
             lobby.winningTeam = "Villager";

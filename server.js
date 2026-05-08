@@ -56,7 +56,8 @@ io.on("connection", async (socket) => {
             hasMetWerewolves: false,
             hasDoneExtraWolfAction: false,
             didFirstPart: false,
-            secondaryRole: ""
+            secondaryRole: "",
+            witchHasViewedCard: false
         }
     }
 
@@ -293,6 +294,7 @@ io.on("connection", async (socket) => {
                 card.hasDoneExtraWolfAction = false;
                 card.didFirstPart = false;
                 card.secondaryRole = "";
+                card.witchHasViewedCard = false;
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -387,7 +389,7 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("has-done-night-action", () => {
+    socket.on("has-clicked-ok-or-do-nothing", () => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
@@ -412,6 +414,11 @@ io.on("connection", async (socket) => {
                 return;
             }
             if (player.startingRole === "Witch" && !player.didFirstPart) {
+                player.didFirstPart = true;
+                updateLobby();
+                return;
+            }
+            if (player.startingRole === "Paranormal Investigator" && player.team === "Villager" && !player.didFirstPart) {
                 player.didFirstPart = true;
                 updateLobby();
                 return;
@@ -489,10 +496,14 @@ io.on("connection", async (socket) => {
                     player.hasDoneNightAction = true;
                     player.hasClickedConfirm = true;
                     if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger" || player.startingRole === "Alpha Wolf" && !player.hasDoneExtraWolfAction ||
-                        player.startingRole === "Witch" && player.didFirstPart || player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
+                        player.startingRole === "Witch" && (player.witchHasViewedCard || player.didFirstPart) || player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
                         !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole)?.nightOrder >= 9) {
                         player.hasDoneNightAction = false;
                         player.hasClickedConfirm = false;
+
+                        if (player.startingRole === "Witch" && player.witchHasViewedCard) {
+                            player.didFirstPart = true;
+                        }
                     }
                 }
                 socket.join(lobby.id);
@@ -629,6 +640,28 @@ io.on("connection", async (socket) => {
                 return;
             }
             player.hasClickedConfirm = true;
+            if ((player.startingRole === "Alpha Wolf" || player.startingRole === "Mystic Wolf") && !player.hasMetWerewolves) {
+                player.hasClickedConfirm = false;
+            }
+            if (player.startingRole === "Paranormal Investigator") {
+                player.team = player.selectedCards.at(-1).team;
+                if (player.selectedCards.at(-1).role === "Copycat" || player.selectedCards.at(-1).role === "Doppelganger") {
+                    player.team = "Villager";
+                }
+                if (!player.didFirstPart) {
+                    player.hasClickedConfirm = false;
+                }
+                if (player.team !== "Villager" && player.team !== "Werewolf") {
+                    player.team = player.roleChain[0] + "-" + player.team;
+                }
+                if (player.selectedCards.at(-1).role.toLowerCase().includes("wolf")) {
+                    player.secondaryRole = "Werewolf";
+                }
+            }
+            if (player.startingRole === "Witch" && !player.didFirstPart) {
+                player.witchHasViewedCard = true;
+                player.hasClickedConfirm = false;
+            }
             if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger") {
                 if (player.startingRole === "Copycat" && player.selectedCards.at(-1).role === "Mortician") {
                     lobby.randomActions.find(action => action.role === "Mortician").seenPlayers.push(player.name);
@@ -642,12 +675,6 @@ io.on("connection", async (socket) => {
                 }
                 player.startingRole = player.selectedCards.at(-1).role;
                 player.secondaryRole = player.startingRole;
-                player.hasClickedConfirm = false;
-            }
-            if ((player.startingRole === "Alpha Wolf" || player.startingRole === "Mystic Wolf") && !player.hasMetWerewolves) {
-                player.hasClickedConfirm = false;
-            }
-            if (player.startingRole === "Witch" && !player.didFirstPart) {
                 player.hasClickedConfirm = false;
             }
             io.to(lobby.id).emit("update-lobbies", lobbies);
