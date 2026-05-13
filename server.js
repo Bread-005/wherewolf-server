@@ -176,7 +176,16 @@ io.on("connection", async (socket) => {
                 }
                 lobby.selectedRoles.splice(index, 1);
             } else {
-                lobby.selectedRoles.push(role);
+                let role1 = role;
+                if (role.name === "Any Random") {
+                    const roles = allRoles.filter(role2 => !lobby.selectedRoles.find(role3 => role2.id === role3.id) && !role2.name.includes("Random"));
+                    role1 = roles.sort(() => Math.random() - 0.5)[0];
+                    if (!role1) {
+                        return;
+                    }
+                    role1.randomlyAdded = true;
+                }
+                lobby.selectedRoles.push(role1);
                 if (!lobby.cards.find(card => card.name === "middle-card4") && lobby.selectedRoles.find(r => r.name === "Alpha Wolf")) {
                     lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4", true));
                 }
