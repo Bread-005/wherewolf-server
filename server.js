@@ -78,7 +78,8 @@ io.on("connection", async (socket) => {
             winningTeam: "",
             voteResultText: "",
             randomActions: [],
-            tempMessages: []
+            tempMessages: [],
+            selectedEditions: ["base game"]
         }
 
         for (let i = 0; i < 3; i++) {
@@ -133,9 +134,6 @@ io.on("connection", async (socket) => {
                 if (lobby.state !== "voting-results") {
                     lobby.cards = lobby.cards.filter(card => card.id !== targetId);
                 }
-                if (lobby.state === "select-roles" && lobby.cards.filter(card => !card.isMiddleCard).length < 3) {
-                    lobby.state = "waiting";
-                }
 
                 if (lobby.cards.filter(card => !card.isMiddleCard).every(player => player.id.includes("-disconnected"))) {
                     lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
@@ -183,7 +181,23 @@ io.on("connection", async (socket) => {
                     lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4", true));
                 }
             }
-            io.to(lobby.id).emit("update-select-roles-screen", lobby);
+            io.to(lobby.id).emit("update-selected-roles", lobby);
+        }
+    });
+
+    socket.on("request-update-selected-editions", (edition) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            if (lobby.selectedEditions.find(e => e === edition)) {
+                lobby.selectedEditions = lobby.selectedEditions.filter(e => e !== edition);
+                lobby.selectedRoles = lobby.selectedRoles.filter(role => role.edition !== edition);
+                if (edition === "daybreak") {
+                    lobby.cards = lobby.cards.filter(card => card.name !== "middle-card4");
+                }
+            } else {
+                lobby.selectedEditions.push(edition);
+            }
+            io.to(lobby.id).emit("update-selected-roles", lobby);
         }
     });
 
@@ -205,13 +219,15 @@ io.on("connection", async (socket) => {
                 card.roleChain.push(result);
                 card.startingRole = result;
                 card.viewableStartingRole = result;
-                card.viewableStartingTeam = result;
+                card.viewableStartingTeam = "Villager";
 
                 if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.name === "middle-card4") {
                     card.team = "Werewolf";
+                    card.viewableStartingTeam = "Werewolf";
                 }
                 if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob") {
                     card.team = card.role;
+                    card.viewableStartingTeam = card.role;
                 }
 
                 if (card.name !== "middle-card4") {
@@ -240,8 +256,8 @@ io.on("connection", async (socket) => {
             ]);
 
             lobby.state = "look-at-role";
+            io.emit("update-lobbies", lobbies);
         }
-        io.emit("update-lobbies", lobbies);
     });
 
     socket.on("update-state", (state) => {
@@ -302,6 +318,7 @@ io.on("connection", async (socket) => {
             lobby.cards.find(player => player.id === socket.id).hasSeenRole = true;
             const players = lobby.cards.filter(card => !card.isMiddleCard);
             if (!players.every(player => player.hasSeenRole)) {
+                updateLobby();
                 return;
             }
             lobby.state = "night";
@@ -375,7 +392,7 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("has-clicked-ok-or-do-nothing", () => {
+    socket.on("has-clicked-ok-or-do-nothing", (hasClickedOk) => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
@@ -399,12 +416,12 @@ io.on("connection", async (socket) => {
                 updateLobby();
                 return;
             }
-            if (player.startingRole === "Witch" && !player.didFirstPart) {
+            if (player.startingRole === "Witch" && !player.didFirstPart && hasClickedOk) {
                 player.didFirstPart = true;
                 updateLobby();
                 return;
             }
-            if (player.startingRole === "Paranormal Investigator" && player.team === "Villager" && !player.didFirstPart) {
+            if (player.startingRole === "Paranormal Investigator" && player.team === "Villager" && !player.didFirstPart && hasClickedOk) {
                 player.didFirstPart = true;
                 updateLobby();
                 return;
@@ -667,7 +684,7 @@ io.on("connection", async (socket) => {
                 player.secondaryRole = player.startingRole;
                 player.hasClickedConfirm = false;
             }
-            io.to(lobby.id).emit("update-lobbies", lobbies);
+            updateLobby();
         }
     });
 
