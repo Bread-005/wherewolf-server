@@ -30,7 +30,7 @@ io.on("connection", async (socket) => {
     io.emit("update-lobbies", lobbies);
     socket.emit("init", socket.id);
 
-    function createCard(id, name, isMiddleCard) {
+    function createCard(id, name) {
         return {
             id: id,
             name: name,
@@ -39,7 +39,7 @@ io.on("connection", async (socket) => {
             vote: "",
             hasSeenRole: false,
             hasDoneNightAction: false,
-            isMiddleCard: isMiddleCard,
+            isMiddleCard: name.includes("middle-card"),
             dies: false,
             voteAmount: 0,
             roleChain: [],
@@ -83,9 +83,9 @@ io.on("connection", async (socket) => {
         }
 
         for (let i = 0; i < 3; i++) {
-            lobby.cards.push(createCard(crypto.randomUUID(), "middle-card" + (i + 1), true));
+            lobby.cards.push(createCard(crypto.randomUUID(), "middle-card" + (i + 1)));
         }
-        lobby.cards.push(createCard(socket.id, playerName, false));
+        lobby.cards.push(createCard(socket.id, playerName));
         socket.join(lobby.id);
         lobbies.push(lobby);
 
@@ -94,14 +94,14 @@ io.on("connection", async (socket) => {
 
     socket.on("join-game", ({name, lobbyId}) => {
         const lobby = lobbies.find(l => l.id === lobbyId);
-        if (!lobby) return;
-
-        lobby.cards.push(createCard(socket.id, name, false));
-        socket.join(lobby.id);
-        if (isTesting(lobby)) {
-            lobby.discussTime = 5;
+        if (lobby) {
+            lobby.cards.push(createCard(socket.id, name));
+            socket.join(lobby.id);
+            if (isTesting(lobby)) {
+                lobby.discussTime = 5;
+            }
+            io.emit("update-lobbies", lobbies);
         }
-        io.emit("update-lobbies", lobbies);
     });
 
     socket.on("disconnect", () => {
@@ -187,7 +187,7 @@ io.on("connection", async (socket) => {
                 }
                 lobby.selectedRoles.push(role1);
                 if (!lobby.cards.find(card => card.name === "middle-card4") && lobby.selectedRoles.find(r => r.name === "Alpha Wolf")) {
-                    lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4", true));
+                    lobby.cards.push(createCard(crypto.randomUUID(), "middle-card4"));
                 }
             }
             io.to(lobby.id).emit("update-selected-roles", lobby);
@@ -349,12 +349,12 @@ io.on("connection", async (socket) => {
                 // manage swaps
                 if (!swapsHappened) {
                     if (players.every(p => p.startingRole !== "Copycat" && p.startingRole !== "Alpha Wolf" && p.startingRole !== "Robber" && p.startingRole !== "Witch" &&
-                        p.startingRole !== "Troublemaker" && p.startingRole !== "Drunk"
+                        p.startingRole !== "Troublemaker" && p.startingRole !== "Village Idiot" && p.startingRole !== "Drunk"
                         && (p.roleChain[0] !== "Doppelganger" && (p.roleChain[0] !== "Copycat" || p.selectedCards[0]?.role !== "Doppelganger") ||
                             allRoles.find(role => role.name === p.startingRole)?.nightOrder >= 9) || p.hasClickedConfirm)) {
                         lobby.pendingSwaps.sort((a, b) => a.priority - b.priority);
                         for (const swap of lobby.pendingSwaps) {
-                            swapCards(lobby, swap);
+                            swapCards(lobby, swap.swap);
                         }
                         swapsHappened = true;
                         players.forEach(p => p.mayDoLateAction = true);
@@ -606,15 +606,16 @@ io.on("connection", async (socket) => {
     socket.on("perform-swap", ({swap}) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
-            const firstCardRole = lobby.cards.find(card => card.name === swap[0].name).role;
-            const secondCardRole = lobby.cards.find(card => card.name === swap[1].name).role;
-            const firstCardTeam = lobby.cards.find(card => card.name === swap[0].name).team;
-            const secondCardTeam = lobby.cards.find(card => card.name === swap[1].name).team;
-            lobby.cards.find(card => card.name === swap[1].name).viewableStartingRole = firstCardRole;
-            lobby.cards.find(card => card.name === swap[0].name).viewableStartingRole = secondCardRole;
-            lobby.cards.find(card => card.name === swap[1].name).viewableStartingTeam = firstCardTeam;
-            lobby.cards.find(card => card.name === swap[0].name).viewableStartingTeam = secondCardTeam;
-            swapCards(lobby, {swap: swap});
+            const cards = swap.map(swapItem => {
+                const originalCard = lobby.cards.find(card => card.name === swapItem.name);
+                return { ...originalCard };
+            });
+            for (let i = 0; i < swap.length; i++) {
+                const currentCard = lobby.cards.find(card => card.name === swap[i].name);
+                currentCard.viewableStartingRole = cards[(i + 1) % cards.length].role;
+                currentCard.viewableStartingTeam = cards[(i + 1) % cards.length].team;
+            }
+            swapCards(lobby, swap);
 
             // set Alpha Wolf has swapped to true
             const player = getPlayer();
@@ -626,20 +627,18 @@ io.on("connection", async (socket) => {
     });
 
     function swapCards(lobby, swap) {
-        const card1 = lobby.cards.find(card => card.name === swap.swap[0].name);
-        const card2 = lobby.cards.find(card => card.name === swap.swap[1].name);
-        if (card1 && card2) {
-            const card1Role = card1.role;
-            const card1Team = card1.team;
-            const card1SecondaryRole = card1.secondaryRole;
-            card1.role = card2.role;
-            card1.roleChain.push(card1.role);
-            card1.team = card2.team;
-            card1.secondaryRole = card2.secondaryRole;
-            card2.role = card1Role;
-            card2.roleChain.push(card2.role);
-            card2.team = card1Team;
-            card2.secondaryRole = card1SecondaryRole;
+        const cards = swap.map(swapItem => {
+            const originalCard = lobby.cards.find(card => card.name === swapItem.name);
+            return { ...originalCard };
+        });
+        for (let i = 0; i < swap.length; i++) {
+            const currentCard = lobby.cards.find(card => card.name === swap[i].name);
+            const nextCard = cards[(i + 1) % cards.length];
+
+            currentCard.role = nextCard.role;
+            currentCard.roleChain.push(currentCard.role);
+            currentCard.team = nextCard.team;
+            currentCard.secondaryRole = nextCard.secondaryRole;
         }
     }
 
