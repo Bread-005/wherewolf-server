@@ -58,7 +58,9 @@ io.on("connection", async (socket) => {
             hasDoneExtraWolfAction: false,
             didFirstPart: false,
             secondaryRole: "",
-            witchHasViewedCard: false
+            witchHasViewedCard: false,
+            viewableCopycatRole: "",
+            viewableCopycatTeam: ""
         }
     }
 
@@ -79,7 +81,8 @@ io.on("connection", async (socket) => {
             voteResultText: "",
             randomActions: [],
             tempMessages: [],
-            selectedEditions: ["base game"]
+            selectedEditions: ["base game"],
+            oracleAnswer: ""
         }
 
         for (let i = 0; i < 3; i++) {
@@ -229,14 +232,18 @@ io.on("connection", async (socket) => {
                 card.startingRole = result;
                 card.viewableStartingRole = result;
                 card.viewableStartingTeam = "Villager";
+                card.viewableCopycatRole = result;
+                card.viewableCopycatTeam = "Villager";
 
                 if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.name === "middle-card4") {
                     card.team = "Werewolf";
                     card.viewableStartingTeam = "Werewolf";
+                    card.viewableCopycatTeam = "Werewolf";
                 }
                 if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob") {
                     card.team = card.role;
                     card.viewableStartingTeam = card.role;
+                    card.viewableCopycatTeam = card.role;
                 }
 
                 if (card.name !== "middle-card4") {
@@ -244,6 +251,13 @@ io.on("connection", async (socket) => {
                 }
             }
             const players = lobby.cards.filter(card => !card.isMiddleCard);
+            addRandomAction("Oracle", -9, [
+                {text: "Would you like to turn into a Werewolf?", amount: 10},
+                {text: "Would you like to exchange your card with one from the center?", amount: 20},
+                {text: "Would you like to view the left center card?", amount: 10},
+                {text: "Would you like to view the middle center card?", amount: 10},
+                {text: "Would you like to view the right center card?", amount: 10}
+            ]);
             const randomBlobActions = [];
             if (players.length === 3) {
                 randomBlobActions.push({text: "Only the Blob itself is part of the Blob.", amount: 3});
@@ -306,6 +320,8 @@ io.on("connection", async (socket) => {
                 card.didFirstPart = false;
                 card.secondaryRole = "";
                 card.witchHasViewedCard = false;
+                card.viewableCopycatRole = "";
+                card.viewableCopycatTeam = "";
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -313,6 +329,7 @@ io.on("connection", async (socket) => {
             lobby.voteResultText = "";
             lobby.randomActions = [];
             lobby.tempMessages = [];
+            lobby.oracleAnswer = "";
             io.emit("update-lobbies", lobbies);
         }
     });
@@ -345,6 +362,18 @@ io.on("connection", async (socket) => {
                 io.to(lobby.id).emit("update-lobbies", lobbies);
 
                 const players = lobby.cards.filter(card => !card.isMiddleCard);
+
+                if (lobby.cards.find(card => card.isMiddleCard && card.roleChain[0] === "Oracle") && !lobby.oracleAnswer) {
+                    if (lobby.nightTimer > 3 + Math.floor(Math.random() * 10)) {
+                        const randomAnswers = ["yes", "no"];
+                        if (lobby.randomActions.find(action => action.role === "Oracle").action.includes("Werewolf?")) {
+                            randomAnswers.push("no", "no");
+                        }
+                        const randomOracleAnswer = randomAnswers.sort(() => Math.random() - 0.5)[0];
+                        submitOracleAnswer(randomOracleAnswer);
+                    }
+                    return;
+                }
 
                 // manage swaps
                 if (!swapsHappened) {
@@ -411,7 +440,9 @@ io.on("connection", async (socket) => {
                 }
                 player.sawWaitMessage = false;
                 updateLobby();
-                return;
+                if (player.startingRole !== "Oracle") {
+                    return;
+                }
             }
             if ((player.startingRole === "Alpha Wolf" || player.startingRole === "Mystic Wolf") && !player.hasMetWerewolves &&
                 player.roleChain[0] !== "Doppelganger" && (player.roleChain[0] !== "Copycat" || player.selectedCards[0]?.role !== "Doppelganger")) {
@@ -507,7 +538,8 @@ io.on("connection", async (socket) => {
                 if (lobby.state === "night" && !player.hasDoneNightAction) {
                     player.hasDoneNightAction = true;
                     player.hasClickedConfirm = true;
-                    if (player.startingRole === "Copycat" || player.startingRole === "Doppelganger" || player.startingRole === "Alpha Wolf" && !player.hasDoneExtraWolfAction ||
+                    if (player.roleChain[0] === "Oracle" && lobby.oracleAnswer.includes("go ahead") && player.roleChain.length === 1 ||
+                        player.startingRole === "Copycat" || player.startingRole === "Doppelganger" || player.startingRole === "Alpha Wolf" && !player.hasDoneExtraWolfAction ||
                         player.startingRole === "Witch" && (player.witchHasViewedCard || player.didFirstPart) || player.startingRole === "Drunk" && !lobby.pendingSwaps.find(swap => swap.priority === 8) ||
                         !player.mayDoLateAction && allRoles.find(role => role.name === player.startingRole)?.nightOrder >= 9) {
                         player.hasDoneNightAction = false;
@@ -545,14 +577,6 @@ io.on("connection", async (socket) => {
             io.to(lobby.id).emit("update-select-roles-screen", lobby);
             io.to(lobby.id).emit("update-lobbies", lobbies);
         }
-    });
-
-    socket.on("add-selected-cards", (selectedCards) => {
-        const player = getPlayer();
-        for (const card of selectedCards) {
-            player.selectedCards.push(card);
-        }
-        updateLobby();
     });
 
     socket.on("skip-to-vote", () => {
@@ -603,7 +627,7 @@ io.on("connection", async (socket) => {
         }
     });
 
-    socket.on("perform-swap", ({swap}) => {
+    socket.on("perform-swap", ({priority, swap}) => {
         const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
         if (lobby) {
             const cards = swap.map(swapItem => {
@@ -614,6 +638,10 @@ io.on("connection", async (socket) => {
                 const currentCard = lobby.cards.find(card => card.name === swap[i].name);
                 currentCard.viewableStartingRole = cards[(i + 1) % cards.length].role;
                 currentCard.viewableStartingTeam = cards[(i + 1) % cards.length].team;
+                if (swap[0].roleChain[0] === "Oracle" && priority === -9) {
+                    currentCard.viewableCopycatRole = cards[(i + 1) % cards.length].role;
+                    currentCard.viewableCopycatTeam = cards[(i + 1) % cards.length].team;
+                }
             }
             swapCards(lobby, swap);
 
@@ -647,14 +675,28 @@ io.on("connection", async (socket) => {
         updateLobby();
     });
 
-    socket.on("has-clicked-confirm", () => {
+    socket.on("has-clicked-confirm", ({selectedCards, oracleAnswer}) => {
         const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player.hasClickedConfirm) {
                 return;
             }
+            if (selectedCards) {
+                for (const card of selectedCards) {
+                    player.selectedCards.push(card);
+                }
+            }
             player.hasClickedConfirm = true;
+            if (oracleAnswer) {
+                submitOracleAnswer(oracleAnswer);
+            }
+            if (player.roleChain[0] === "Oracle") {
+                if (lobby.oracleAnswer.includes("turn into") && player.startingRole === "Werewolf" || lobby.oracleAnswer.includes("go ahead") ||
+                    lobby.randomActions.find(action => action.role === "Oracle").action.includes("Would you like to view")) {
+                    player.hasClickedConfirm = false;
+                }
+            }
             if ((player.startingRole === "Alpha Wolf" || player.startingRole === "Mystic Wolf") && !player.hasMetWerewolves) {
                 player.hasClickedConfirm = false;
             }
@@ -762,16 +804,65 @@ io.on("connection", async (socket) => {
                 nightOrder: nightOrder,
                 role: roleName,
                 action: array[0],
-                seenPlayers: roleName !== "Blob" ? [lobby.cards.find(card => card.role === roleName).name] : []
+                seenPlayers: roleName !== "Oracle" && roleName !== "Blob" ? [lobby.cards.find(card => card.role === roleName).name] : []
             });
 
-            if (roleName !== "Blob" && lobby.selectedRoles.find(role => role.name === "Doppelganger")) {
+            if (roleName !== "Oracle" && roleName !== "Blob" && lobby.selectedRoles.find(role => role.name === "Doppelganger")) {
                 lobby.randomActions.push({
                     nightOrder: nightOrder + 0.01,
                     role: "Doppelganger-" + roleName,
                     action: array[1],
                     seenPlayers: []
                 });
+            }
+        }
+    }
+
+    function submitOracleAnswer(answer) {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const oracleAction = lobby.randomActions.find(action => action.role === "Oracle");
+            if (oracleAction.action.includes("turn into a Werewolf?")) {
+                if (answer === "yes") {
+                    lobby.oracleAnswer = "Congratulations the Oracle card is now a Werewolf card!";
+                    const card = lobby.cards.find(card => card.roleChain[0] === "Oracle");
+                    if (card) {
+                        card.role = "Werewolf";
+                        card.roleChain.push("Werewolf");
+                        card.team = "Werewolf";
+                        card.viewableStartingRole = "Werewolf";
+                        card.viewableStartingTeam = "Werewolf";
+                        card.startingRole = "Werewolf";
+                    }
+                }
+                if (answer === "no") {
+                    lobby.oracleAnswer = "Ok, the Oracle stays on the Villager team!";
+                }
+            }
+            if (oracleAction.action.includes("like to exchange")) {
+                if (answer === "yes") {
+                    lobby.oracleAnswer = "Ok Oracle, go ahead and exchange your card with one from the center!";
+                }
+                if (answer === "no") {
+                    lobby.oracleAnswer = "Ok the Oracle, keeps their card!";
+                }
+            }
+            if (oracleAction.action.includes("center card?")) {
+                if (answer === "yes") {
+                    lobby.oracleAnswer = "Ok Oracle, you may view the " + oracleAction.action.split("the ")[1].split(" ")[0] + " center card";
+                }
+                if (answer === "no") {
+                    const randomOracleAnswer = [1, 2, 3].sort(() => Math.random() - 0.5)[0];
+                    if (randomOracleAnswer === 1) {
+                        lobby.oracleAnswer = "Ok, then you don´t look at it.";
+                    }
+                    if (randomOracleAnswer === 2) {
+                        lobby.oracleAnswer = "You may look at one of the other center cards instead.";
+                    }
+                    if (randomOracleAnswer === 3) {
+                        lobby.oracleAnswer = "You may look at two other center cards instead.";
+                    }
+                }
             }
         }
     }
