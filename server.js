@@ -60,7 +60,8 @@ io.on("connection", async (socket) => {
             secondaryRole: "",
             witchHasViewedCard: false,
             viewableCopycatRole: "",
-            viewableCopycatTeam: ""
+            viewableCopycatTeam: "",
+            bumpedList: []
         }
     }
 
@@ -322,6 +323,7 @@ io.on("connection", async (socket) => {
                 card.witchHasViewedCard = false;
                 card.viewableCopycatRole = "";
                 card.viewableCopycatTeam = "";
+                card.bumpedList = [];
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -398,6 +400,9 @@ io.on("connection", async (socket) => {
                         if (!action.seenPlayers.includes(player.name)) {
                             return;
                         }
+                    }
+                    if (player.bumpedList.length > 0) {
+                        return;
                     }
                 }
                 const oneToTenSecondDelay = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
@@ -783,8 +788,12 @@ io.on("connection", async (socket) => {
                     if (!action.seenPlayers.includes(player.name)) {
                         action.seenPlayers.push(player.name);
                         updateLobby();
-                        break;
+                        return;
                     }
+                }
+                if (player.bumpedList.length > 0) {
+                    player.bumpedList = [];
+                    updateLobby();
                 }
             }
         }
@@ -866,6 +875,15 @@ io.on("connection", async (socket) => {
             }
         }
     }
+
+    socket.on("thing-bump", ({thing, bumped}) => {
+        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        if (lobby) {
+            const thingPlayer = lobby.cards.find(p => p.name === thing.name);
+            const bumpedPlayer = lobby.cards.find(p => p.name === bumped.name);
+            bumpedPlayer.bumpedList.push(thingPlayer.name);
+        }
+    });
 });
 
 function setAllRoles(roles) {
