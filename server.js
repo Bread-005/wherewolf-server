@@ -242,7 +242,7 @@ io.on("connection", async (socket) => {
                     card.viewableStartingTeam = "Werewolf";
                     card.viewableCopycatTeam = "Werewolf";
                 }
-                if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob") {
+                if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob" || card.role === "Sly Fox") {
                     card.team = card.role;
                     card.viewableStartingTeam = card.role;
                     card.viewableCopycatTeam = card.role;

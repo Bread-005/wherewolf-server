@@ -193,6 +193,18 @@ function evaluateVotingResults(lobby, players) {
             }
         }
     }
+
+    // evaluate if Sly Fox has won
+    for (const player of players) {
+        if (player.team.includes("Sly Fox") && player.voteAmount === 0) {
+            if (lobby.winningTeam.includes("Sly Fox")) {
+                lobby.winningTeam += " and " + player.team;
+            } else {
+                lobby.winningTeam = player.team;
+                lobby.voteResultText = "The Sly Fox received 0 votes.";
+            }
+        }
+    }
 }
 
 export {evaluateVotingResults};
