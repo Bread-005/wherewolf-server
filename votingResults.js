@@ -96,8 +96,16 @@ function evaluateVotingResults(lobby, players) {
             lobby.voteResultText = "The Minion survived";
             lobby.winningTeam = "Werewolf";
         }
+        if (players.find(p => p.role === "Squire" && !p.dies)) {
+            lobby.voteResultText = "The Squire survived";
+            lobby.winningTeam = "Werewolf";
+        }
         if (players.find(p => p.role === "Minion" && p.dies)) {
             lobby.voteResultText = "The Minion died";
+            lobby.winningTeam = "Villager";
+        }
+        if (players.find(p => p.role === "Squire" && p.dies)) {
+            lobby.voteResultText = "The Squire died";
             lobby.winningTeam = "Villager";
         }
         lobby.voteResultText += " and there are no werewolves.";

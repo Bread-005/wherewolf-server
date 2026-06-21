@@ -236,7 +236,7 @@ io.on("connection", async (socket) => {
                 card.viewableCopycatRole = result;
                 card.viewableCopycatTeam = "Villager";
 
-                if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.name === "middle-card4") {
+                if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.role === "Squire" || card.name === "middle-card4") {
                     card.team = "Werewolf";
                     card.viewableStartingTeam = "Werewolf";
                     card.viewableCopycatTeam = "Werewolf";
