@@ -57,7 +57,7 @@ io.on("connection", async (socket) => {
             hasMetWerewolves: false,
             hasDoneExtraWolfAction: false,
             didFirstPart: false,
-            secondaryRole: "",
+            mainAbility: "",
             witchHasViewedCard: false,
             viewableCopycatRole: "",
             viewableCopycatTeam: "",
@@ -231,6 +231,7 @@ io.on("connection", async (socket) => {
                 card.role = result;
                 card.roleChain.push(result);
                 card.startingRole = result;
+                card.mainAbility = result;
                 card.viewableStartingRole = result;
                 card.viewableStartingTeam = "Villager";
                 card.viewableCopycatRole = result;
@@ -245,6 +246,11 @@ io.on("connection", async (socket) => {
                     card.team = card.role;
                     card.viewableStartingTeam = card.role;
                     card.viewableCopycatTeam = card.role;
+                }
+                if (card.role === "Apprentice Tanner") {
+                    card.team = "Tanner";
+                    card.viewableStartingTeam = "Tanner";
+                    card.viewableCopycatTeam = "Tanner";
                 }
 
                 if (card.name !== "middle-card4") {
@@ -319,7 +325,7 @@ io.on("connection", async (socket) => {
                 card.hasMetWerewolves = false;
                 card.hasDoneExtraWolfAction = false;
                 card.didFirstPart = false;
-                card.secondaryRole = "";
+                card.mainAbility = "";
                 card.witchHasViewedCard = false;
                 card.viewableCopycatRole = "";
                 card.viewableCopycatTeam = "";
@@ -671,7 +677,7 @@ io.on("connection", async (socket) => {
             currentCard.role = nextCard.role;
             currentCard.roleChain.push(currentCard.role);
             currentCard.team = nextCard.team;
-            currentCard.secondaryRole = nextCard.secondaryRole;
+            currentCard.mainAbility = nextCard.mainAbility;
         }
     }
 
@@ -717,7 +723,7 @@ io.on("connection", async (socket) => {
                     player.team = player.roleChain[0] + "-" + player.team;
                 }
                 if (player.team !== "Villager") {
-                    player.secondaryRole = player.selectedCards.at(-1).viewableStartingRole;
+                    player.mainAbility = player.selectedCards.at(-1).viewableStartingRole;
                 }
             }
             if (player.startingRole === "Witch" && !player.didFirstPart) {
@@ -736,7 +742,7 @@ io.on("connection", async (socket) => {
                     player.team = player.startingRole + "-" + player.team;
                 }
                 player.startingRole = player.selectedCards.at(-1).role;
-                player.secondaryRole = player.startingRole;
+                player.mainAbility = player.startingRole;
                 player.hasClickedConfirm = false;
             }
             updateLobby();

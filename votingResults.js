@@ -3,9 +3,9 @@ function evaluateVotingResults(lobby, players) {
     // check Cursed Transform three times because Doppelganger-Cursed and Copycat-Cursed
     for (let i = 0; i < 3; i++) {
         for (const player of players) {
-            if (player.role === "Cursed" || player.secondaryRole === "Cursed") {
+            if (player.mainAbility === "Cursed") {
                 for (const player1 of players) {
-                    if ((player1.role.toLowerCase().includes("wolf") || player1.secondaryRole.toLowerCase().includes("wolf")) && player1.vote === player.name) {
+                    if (player1.mainAbility.toLowerCase().includes("wolf") && player1.vote === player.name) {
                         player.role = "Werewolf";
                         player.team = "Werewolf";
                         player.roleChain.push("Werewolf");
@@ -28,10 +28,10 @@ function evaluateVotingResults(lobby, players) {
     }
 
     for (const player of players) {
-        if (player.role === "Prince" || player.secondaryRole === "Prince") {
+        if (player.mainAbility === "Prince") {
             player.voteAmount = 0;
         }
-        if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+        if (player.mainAbility === "Bodyguard") {
             players.find(p => p.name === player.vote).voteAmount = 0;
         }
     }
@@ -50,7 +50,7 @@ function evaluateVotingResults(lobby, players) {
         }
 
         for (const player of players) {
-            if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+            if (player.mainAbility === "Bodyguard") {
                 players.find(p => p.name === player.vote).dies = false;
             }
         }
@@ -58,11 +58,11 @@ function evaluateVotingResults(lobby, players) {
         // check Hunter deaths three times because Doppelganger-Hunter and Copycat-Hunter
         for (let i = 0; i < 3; i++) {
             for (const player of players) {
-                if (player.role === "Hunter" || player.secondaryRole === "Hunter") {
+                if (player.mainAbility === "Hunter") {
                     players.find(p => p.name === player.vote).dies = true;
 
                     for (const player of players) {
-                        if (player.role === "Bodyguard" || player.secondaryRole === "Bodyguard") {
+                        if (player.mainAbility === "Bodyguard") {
                             players.find(p => p.name === player.vote).dies = false;
                         }
                     }
@@ -71,19 +71,17 @@ function evaluateVotingResults(lobby, players) {
         }
     }
 
-    if (players.find(player => player.role.toLowerCase().includes("wolf") || player.secondaryRole.toLowerCase().includes("wolf"))) {
-        if (!players.find(player => player.team.includes("Tanner") && player.dies)) {
-            lobby.voteResultText = "No werewolves died.";
-            lobby.winningTeam = "Werewolf";
-        }
+    if (players.find(player => player.mainAbility.toLowerCase().includes("wolf"))) {
+        lobby.voteResultText = "No werewolves died.";
+        lobby.winningTeam = "Werewolf";
 
-        if (players.find(p => (p.role.toLowerCase().includes("wolf") || p.secondaryRole.toLowerCase().includes("wolf")) && p.dies)) {
+        if (players.find(p => (p.mainAbility.toLowerCase().includes("wolf")) && p.dies)) {
             lobby.voteResultText = "a werewolf died.";
             lobby.winningTeam = "Villager";
         }
     }
 
-    if (!players.find(player => player.role.toLowerCase().includes("wolf") || player.secondaryRole.toLowerCase().includes("wolf"))) {
+    if (!players.find(player => player.mainAbility.toLowerCase().includes("wolf"))) {
         if (!players.find(player => player.dies)) {
             lobby.voteResultText = "Everyone lives";
             lobby.winningTeam = "Villager";
@@ -114,8 +112,13 @@ function evaluateVotingResults(lobby, players) {
     // evaluate if Tanner has won
     for (const player of players) {
         if (player.dies) {
-            if (player.team.includes("Tanner")) {
-                if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
+            if (player.team.includes("Tanner") && player.mainAbility !== "Apprentice Tanner" ||
+                player.mainAbility === "Apprentice Tanner" && !players.find(p => p.team.includes("Tanner") && p.mainAbility !== "Apprentice Tanner")) {
+                if (lobby.winningTeam.includes("Werewolf")) {
+                    lobby.voteResultText = "";
+                    lobby.winningTeam = "";
+                }
+                if (lobby.winningTeam.length > 0) {
                     lobby.winningTeam += " and " + player.team;
                     lobby.voteResultText += " and the " + player.team + " died.";
                 } else {
