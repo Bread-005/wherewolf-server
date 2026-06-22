@@ -1,3 +1,14 @@
+function appendWinResult(lobby, team, text) {
+    const canAppend = lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one";
+    if (canAppend) {
+        lobby.winningTeam += " and " + team;
+        lobby.voteResultText += " and " + text[0].toLowerCase() + text.slice(1);
+    } else {
+        lobby.winningTeam = team;
+        lobby.voteResultText = text;
+    }
+}
+
 function evaluateVotingResults(lobby, players) {
 
     // check Cursed Transform three times because Doppelganger-Cursed and Copycat-Cursed
@@ -118,13 +129,7 @@ function evaluateVotingResults(lobby, players) {
                     lobby.voteResultText = "";
                     lobby.winningTeam = "";
                 }
-                if (lobby.winningTeam.length > 0) {
-                    lobby.winningTeam += " and " + player.team;
-                    lobby.voteResultText += " and the " + player.team + " died.";
-                } else {
-                    lobby.winningTeam = player.team;
-                    lobby.voteResultText = "The " + player.team + " died.";
-                }
+                appendWinResult(lobby, player.team, "The " + player.team + " died.");
             }
         }
     }
@@ -137,13 +142,7 @@ function evaluateVotingResults(lobby, players) {
             const rightNeighbor = players[(myIndex - 1 + players.length) % players.length];
 
             if (leftNeighbor.dies || rightNeighbor.dies) {
-                if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
-                    lobby.winningTeam += " and " + player.team;
-                    lobby.voteResultText += " and one of " + player.name + "'s neighbors died.";
-                } else {
-                    lobby.winningTeam = player.team;
-                    lobby.voteResultText = "One of " + player.name + "'s neighbors died.";
-                }
+                appendWinResult(lobby, player.team, "One of " + player.name + "'s neighbors died.")
             }
         }
     }
@@ -182,13 +181,7 @@ function evaluateVotingResults(lobby, players) {
                 }
 
                 if (Array.from(blobPlayers).every(p => !p.dies)) {
-                    if (lobby.winningTeam.length > 0 && lobby.winningTeam !== "No-one") {
-                        lobby.winningTeam += " and " + player.team;
-                        lobby.voteResultText += " and all players in " + player.name + "'s Blob survived.";
-                    } else {
-                        lobby.winningTeam = player.team;
-                        lobby.voteResultText = "All players in " + player.name + "'s Blob survived.";
-                    }
+                    appendWinResult(lobby, player.team, "All players in " + player.name + "'s Blob survived.");
                 }
             }
         }

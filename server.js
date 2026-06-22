@@ -25,6 +25,10 @@ let lobbies = [];
 let leavingPlayerNames = [];
 let allRoles = [];
 
+function findLobbyByCardId(cardId) {
+    return lobbies.find(lobby => lobby.cards.find(card => card.id === cardId));
+}
+
 io.on("connection", async (socket) => {
 
     io.emit("update-lobbies", lobbies);
@@ -63,6 +67,16 @@ io.on("connection", async (socket) => {
             viewableCopycatTeam: "",
             bumpedList: []
         }
+    }
+
+    function findLobbyBySocketId() {
+        return findLobbyByCardId(socket.id);
+    }
+
+    function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return (minutes < 10 ? "0" : "") + minutes + ":" + (remainingSeconds < 10 ? "0" : "") + remainingSeconds;
     }
 
     socket.on("create-lobby", (playerName) => {
@@ -109,7 +123,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("disconnect", () => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const player = lobby.cards.find(player => player.id === socket.id);
             leavingPlayerNames.push(player.name);
@@ -171,7 +185,7 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("request-update-selected-roles", (role) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const index = lobby.selectedRoles.findIndex(r => r.id === role.id);
             if (index > -1) {
@@ -199,7 +213,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("request-update-selected-editions", (edition) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             if (lobby.selectedEditions.find(e => e === edition)) {
                 lobby.selectedEditions = lobby.selectedEditions.filter(e => e !== edition);
@@ -215,7 +229,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("start-game", () => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             lobby.startTime = new Date();
             const roleNames = [];
@@ -291,7 +305,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("update-state", (state) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             lobby.state = state;
         }
@@ -299,7 +313,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("reset-lobby", () => {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
             for (const card of lobby.cards) {
@@ -347,7 +361,7 @@ io.on("connection", async (socket) => {
     });
 
     function checkEveryoneHasSeenRole() {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "look-at-role") {
             lobby.cards.find(player => player.id === socket.id).hasSeenRole = true;
             const players = lobby.cards.filter(card => !card.isMiddleCard);
@@ -364,9 +378,7 @@ io.on("connection", async (socket) => {
             let nightEnds = false;
             const nightCycle = setInterval(() => {
                 lobby.nightTimer++;
-                lobby.displayText = "It is night time - " +
-                    ((lobby.nightTimer / 60 < 10 ? "0" : "") + Math.floor(lobby.nightTimer / 60)) + ":" +
-                    (lobby.nightTimer % 60 < 10 ? "0" : "") + lobby.nightTimer % 60;
+                lobby.displayText = "It is night time - " + formatTime(lobby.nightTimer);
                 io.to(lobby.id).emit("update-lobbies", lobbies);
 
                 const players = lobby.cards.filter(card => !card.isMiddleCard);
@@ -425,9 +437,7 @@ io.on("connection", async (socket) => {
                     // day cycle
                     const dayCycle = setInterval(() => {
                         lobby.remainingDiscussTime--;
-                        lobby.displayText = "It is now day time - " +
-                            ((lobby.remainingDiscussTime / 60 < 10 ? "0" : "") + Math.floor(lobby.remainingDiscussTime / 60)) + ":" +
-                            (lobby.remainingDiscussTime % 60 < 10 ? "0" : "") + lobby.remainingDiscussTime % 60;
+                        lobby.displayText = "It is now day time - " + formatTime(lobby.remainingDiscussTime);
 
                         if (lobby.remainingDiscussTime <= 0) {
                             clearInterval(dayCycle);
@@ -442,7 +452,7 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("has-clicked-ok-or-do-nothing", (hasClickedOk) => {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
             if ((player.roleChain[0] === "Doppelganger" || player.roleChain[0] === "Copycat") && !player.hasCopiedRole) {
@@ -491,7 +501,7 @@ io.on("connection", async (socket) => {
     });
 
     async function checkEveryoneHasVoted(votedPlayerName) {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "voting") {
 
             const players = lobby.cards.filter(card => !card.isMiddleCard);
@@ -530,7 +540,7 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("add-swap", ({priority, swap}) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             lobby.pendingSwaps.push({
                 priority: priority,
@@ -582,7 +592,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("change-discuss-time", (discussTime) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             lobby.discussTime = discussTime;
             io.to(lobby.id).emit("update-select-roles-screen", lobby);
@@ -595,7 +605,7 @@ io.on("connection", async (socket) => {
     });
 
     function checkEveryoneHasSkippedToVote() {
-        const lobby = lobbies.find(lobby => lobby.cards.find(c => c.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const players = lobby.cards.filter(card => !card.isMiddleCard);
             const player = players.find(player => player.id === socket.id);
@@ -610,7 +620,7 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("send-chat-message", (message) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player) {
@@ -626,7 +636,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("send-console-message", (message) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const messageObject = {
                 sender: "System",
@@ -639,7 +649,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("perform-swap", ({priority, swap}) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const cards = swap.map(swapItem => {
                 const originalCard = lobby.cards.find(card => card.name === swapItem.name);
@@ -687,7 +697,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("has-clicked-confirm", ({selectedCards, oracleAnswer}) => {
-        const lobby = lobbies.find(l => l.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "night") {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player.hasClickedConfirm) {
@@ -764,7 +774,7 @@ io.on("connection", async (socket) => {
     });
 
     function getPlayer(name = "") {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const player = lobby.cards.find(player => player.id === socket.id);
             const player1 = lobby.cards.find(player => player.name === name);
@@ -779,14 +789,14 @@ io.on("connection", async (socket) => {
     }
 
     function updateLobby() {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             io.to(lobby.id).emit("update-lobbies", lobbies);
         }
     }
 
     socket.on("confirm-seen-random-action", () => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const player = lobby.cards.find(player => player.id === socket.id);
             if (player) {
@@ -806,7 +816,7 @@ io.on("connection", async (socket) => {
     });
 
     function addRandomAction(roleName = "", nightOrder = 20, randomActions = [{text: "Nothing", amount: 2}]) {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby.selectedRoles.find(role => role.name === roleName)) {
             const array = [];
             for (const randomAction of randomActions) {
@@ -834,7 +844,7 @@ io.on("connection", async (socket) => {
     }
 
     function submitOracleAnswer(answer) {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const oracleAction = lobby.randomActions.find(action => action.role === "Oracle");
             if (oracleAction.action.includes("turn into a Werewolf?")) {
@@ -883,7 +893,7 @@ io.on("connection", async (socket) => {
     }
 
     socket.on("thing-bump", ({thing, bumped}) => {
-        const lobby = lobbies.find(lobby => lobby.cards.find(player => player.id === socket.id));
+        const lobby = findLobbyBySocketId();
         if (lobby) {
             const thingPlayer = lobby.cards.find(p => p.name === thing.name);
             const bumpedPlayer = lobby.cards.find(p => p.name === bumped.name);
