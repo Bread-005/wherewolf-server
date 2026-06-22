@@ -34,43 +34,52 @@ io.on("connection", async (socket) => {
     io.emit("update-lobbies", lobbies);
     socket.emit("init", socket.id);
 
+    function resetCardState(card) {
+        card.role = "";
+        card.team = "Villager";
+        card.vote = "";
+        card.hasSeenRole = false;
+        card.hasDoneNightAction = false;
+        card.dies = false;
+        card.voteAmount = 0;
+        card.roleChain = [];
+        card.selectedCards = [];
+        card.hasSkippedToVote = false;
+        card.startingRole = "";
+        card.isRevealed = false;
+        card.hasClickedConfirm = false;
+        card.hasCopiedRole = false;
+        card.mayDoLateAction = false;
+        card.sawWaitMessage = false;
+        card.viewableStartingRole = "";
+        card.viewableStartingTeam = "";
+        card.isSentinelled = false;
+        card.hasMetWerewolves = false;
+        card.hasDoneExtraWolfAction = false;
+        card.didFirstPart = false;
+        card.mainAbility = "";
+        card.witchHasViewedCard = false;
+        card.viewableCopycatRole = "";
+        card.viewableCopycatTeam = "";
+        card.bumpedList = [];
+    }
+
     function createCard(id, name) {
-        return {
+        const card = {
             id: id,
             name: name,
-            role: "",
-            team: "Villager",
-            vote: "",
-            hasSeenRole: false,
-            hasDoneNightAction: false,
-            isMiddleCard: name.includes("middle-card"),
-            dies: false,
-            voteAmount: 0,
-            roleChain: [],
-            selectedCards: [],
-            hasSkippedToVote: false,
-            startingRole: "",
-            isRevealed: false,
-            hasClickedConfirm: false,
-            hasCopiedRole: false,
-            mayDoLateAction: false,
-            sawWaitMessage: false,
-            viewableStartingRole: "",
-            viewableStartingTeam: "",
-            isSentinelled: false,
-            hasMetWerewolves: false,
-            hasDoneExtraWolfAction: false,
-            didFirstPart: false,
-            mainAbility: "",
-            witchHasViewedCard: false,
-            viewableCopycatRole: "",
-            viewableCopycatTeam: "",
-            bumpedList: []
-        }
+            isMiddleCard: name.includes("middle-card")
+        };
+        resetCardState(card);
+        return card;
     }
 
     function findLobbyBySocketId() {
         return findLobbyByCardId(socket.id);
+    }
+
+    function getPlayers(lobby) {
+        return lobby.cards.filter(card => !card.isMiddleCard);
     }
 
     function formatTime(seconds) {
@@ -153,10 +162,10 @@ io.on("connection", async (socket) => {
                     lobby.cards = lobby.cards.filter(card => card.id !== targetId);
                 }
 
-                if (lobby.cards.filter(card => !card.isMiddleCard).every(player => player.id.includes("-disconnected"))) {
+                if (getPlayers(lobby).every(player => player.id.includes("-disconnected"))) {
                     lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
                 }
-                if (lobby.cards.filter(card => !card.isMiddleCard).length === 0) lobbies = lobbies.filter(l => l.id !== lobby.id);
+                if (getPlayers(lobby).length === 0) lobbies = lobbies.filter(l => l.id !== lobby.id);
             } else {
                 const player = lobby.cards.find(player => player.id === targetId);
                 player.vote = "No-one";
@@ -167,7 +176,7 @@ io.on("connection", async (socket) => {
                 checkEveryoneHasSkippedToVote();
                 await checkEveryoneHasVoted(player.vote);
                 player.id = crypto.randomUUID() + "-disconnected";
-                if (lobby.cards.filter(card => !card.isMiddleCard).every(p => p.id.includes("-disconnected"))) {
+                if (getPlayers(lobby).every(p => p.id.includes("-disconnected"))) {
                     lobbies = lobbies.filter(l => l.id !== lobby.id);
                 }
                 for (const action of lobby.randomActions) {
@@ -241,37 +250,23 @@ io.on("connection", async (socket) => {
             }
 
             for (const card of lobby.cards) {
-                const result = card.name === "middle-card4" ? "Werewolf" : roleNames[0];
-                card.role = result;
-                card.roleChain.push(result);
-                card.startingRole = result;
-                card.mainAbility = result;
-                card.viewableStartingRole = result;
-                card.viewableStartingTeam = "Villager";
-                card.viewableCopycatRole = result;
-                card.viewableCopycatTeam = "Villager";
-
-                if (card.role.toLowerCase().includes("wolf") || card.role === "Minion" || card.role === "Squire" || card.name === "middle-card4") {
-                    card.team = "Werewolf";
-                    card.viewableStartingTeam = "Werewolf";
-                    card.viewableCopycatTeam = "Werewolf";
-                }
-                if (card.role === "Tanner" || card.role === "Mortician" || card.role === "Blob" || card.role === "Sly Fox") {
-                    card.team = card.role;
-                    card.viewableStartingTeam = card.role;
-                    card.viewableCopycatTeam = card.role;
-                }
-                if (card.role === "Apprentice Tanner") {
-                    card.team = "Tanner";
-                    card.viewableStartingTeam = "Tanner";
-                    card.viewableCopycatTeam = "Tanner";
-                }
+                const role = card.name === "middle-card4" ? "Werewolf" : roleNames[0];
+                const team = allRoles.find(role => role.name === result)?.team ?? "";
+                card.role = role;
+                card.team = team;
+                card.roleChain.push(role);
+                card.startingRole = role;
+                card.mainAbility = role;
+                card.viewableStartingRole = role;
+                card.viewableStartingTeam = team;
+                card.viewableCopycatRole = role;
+                card.viewableCopycatTeam = team;
 
                 if (card.name !== "middle-card4") {
                     roleNames.shift();
                 }
             }
-            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const players = getPlayers(lobby);
             addRandomAction("Oracle", -9, [
                 {text: "Would you like to turn into a Werewolf?", amount: 10},
                 {text: "Would you like to exchange your card with one from the center?", amount: 20},
@@ -317,33 +312,7 @@ io.on("connection", async (socket) => {
         if (lobby) {
             lobby.cards = lobby.cards.filter(player => !player.id.includes("-disconnected"));
             for (const card of lobby.cards) {
-                card.role = "";
-                card.team = "Villager";
-                card.hasSeenRole = false;
-                card.hasDoneNightAction = false;
-                card.vote = "";
-                card.dies = false;
-                card.voteAmount = 0;
-                card.roleChain = [];
-                card.selectedCards = [];
-                card.hasSkippedToVote = false;
-                card.startingRole = "";
-                card.isRevealed = false;
-                card.hasClickedConfirm = false;
-                card.hasCopiedRole = false;
-                card.mayDoLateAction = false;
-                card.sawWaitMessage = false;
-                card.viewableStartingRole = "";
-                card.viewableStartingTeam = "";
-                card.isSentinelled = false;
-                card.hasMetWerewolves = false;
-                card.hasDoneExtraWolfAction = false;
-                card.didFirstPart = false;
-                card.mainAbility = "";
-                card.witchHasViewedCard = false;
-                card.viewableCopycatRole = "";
-                card.viewableCopycatTeam = "";
-                card.bumpedList = [];
+                resetCardState(card);
             }
             lobby.state = "waiting";
             lobby.pendingSwaps = [];
@@ -364,7 +333,7 @@ io.on("connection", async (socket) => {
         const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "look-at-role") {
             lobby.cards.find(player => player.id === socket.id).hasSeenRole = true;
-            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const players = getPlayers(lobby);
             if (!players.every(player => player.hasSeenRole)) {
                 updateLobby();
                 return;
@@ -381,7 +350,7 @@ io.on("connection", async (socket) => {
                 lobby.displayText = "It is night time - " + formatTime(lobby.nightTimer);
                 io.to(lobby.id).emit("update-lobbies", lobbies);
 
-                const players = lobby.cards.filter(card => !card.isMiddleCard);
+                const players = getPlayers(lobby);
 
                 if (lobby.cards.find(card => card.isMiddleCard && card.roleChain[0] === "Oracle") && !lobby.oracleAnswer) {
                     if (lobby.nightTimer > 3 + Math.floor(Math.random() * 10)) {
@@ -504,7 +473,7 @@ io.on("connection", async (socket) => {
         const lobby = findLobbyBySocketId();
         if (lobby && lobby.state === "voting") {
 
-            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const players = getPlayers(lobby);
             lobby.cards.find(player => player.id === socket.id).vote = votedPlayerName;
             io.emit("update-lobbies", lobbies);
             if (!players.every(player => player.vote)) return;
@@ -607,7 +576,7 @@ io.on("connection", async (socket) => {
     function checkEveryoneHasSkippedToVote() {
         const lobby = findLobbyBySocketId();
         if (lobby) {
-            const players = lobby.cards.filter(card => !card.isMiddleCard);
+            const players = getPlayers(lobby);
             const player = players.find(player => player.id === socket.id);
             if (player) {
                 player.hasSkippedToVote = true;
@@ -619,33 +588,25 @@ io.on("connection", async (socket) => {
         }
     }
 
-    socket.on("send-chat-message", (message) => {
-        const lobby = findLobbyBySocketId();
-        if (lobby) {
-            const player = lobby.cards.find(player => player.id === socket.id);
-            if (player) {
-                const messageObject = {
-                    sender: player.name,
-                    message: message
-                }
-                lobby.messages.push(messageObject);
-                lobby.tempMessages.push(messageObject);
-                io.to(lobby.id).emit("receive-chat-message", messageObject);
-            }
-        }
-    });
-
-    socket.on("send-console-message", (message) => {
+    function sendMessage(playerSendMessage, message) {
         const lobby = findLobbyBySocketId();
         if (lobby) {
             const messageObject = {
-                sender: "System",
+                sender: !playerSendMessage ? "System" : lobby.cards.find(player => player.id === socket.id)?.name ?? "",
                 message: message
             }
             lobby.messages.push(messageObject);
             lobby.tempMessages.push(messageObject);
             io.to(lobby.id).emit("receive-chat-message", messageObject);
         }
+    }
+
+    socket.on("send-chat-message", (message) => {
+        sendMessage(true, message);
+    });
+
+    socket.on("send-console-message", (message) => {
+        sendMessage(false, message);
     });
 
     socket.on("perform-swap", ({priority, swap}) => {
