@@ -251,7 +251,7 @@ io.on("connection", async (socket) => {
 
             for (const card of lobby.cards) {
                 const role = card.name === "middle-card4" ? "Werewolf" : roleNames[0];
-                const team = allRoles.find(role => role.name === result)?.team ?? "";
+                const team = allRoles.find(role1 => role1.name === role)?.team ?? "";
                 card.role = role;
                 card.team = team;
                 card.roleChain.push(role);
